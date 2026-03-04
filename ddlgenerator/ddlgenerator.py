@@ -487,26 +487,6 @@ class Table(object):
 
     _insert_template = "INSERT INTO {table_name} ({cols}) VALUES ({vals});"
 
-    def emit_db_sequence_updates(self):
-        """Set database sequence objects to match the source db
-
-           Relevant only when generated from SQLAlchemy connection.
-           Needed to avoid subsequent unique key violations after DB build."""
-
-        if self.source.db_engine and self.source.db_engine.name == 'postgresql':
-            # not implemented for other RDBMS; necessity unknown
-            conn = self.source.db_engine.connect()
-            qry = """SELECT 'SELECT last_value FROM ' || n.nspname || '.' || c.relname || ';'
-                     FROM   pg_namespace n
-                     JOIN   pg_class c ON (n.oid = c.relnamespace)
-                     WHERE  c.relkind = 'S'"""
-            result = []
-            for (sequence, ) in list(conn.execute(qry)):
-                qry = "SELECT last_value FROM %s" % sequence
-                (lastval, ) = conn.execute(qry).first()
-                nextval = int(lastval) + 1
-                yield "ALTER SEQUENCE %s RESTART WITH %s;" % (sequence, nextval)
-
     def inserts(self, dialect=None):
         if dialect and dialect.startswith("sqla"):
             if self.data:
@@ -516,7 +496,7 @@ class Table(object):
                     yield textwrap.indent("conn.execute(inserter, **{row})"
                                           .format(row=str(dict(row))),
                                           "    ")
-                for seq_updater in self.emit_db_sequence_updates():
+                for seq_updater in emit_db_sequence_updates(self.source.db_engine):
                     yield '    conn.execute("%s")' % seq_updater
             else:
                 yield "\n# No data for %s" % self.table.name

@@ -21,6 +21,7 @@ from ddlgenerator.reshape import (
     unnest_children,
     ParentTable,
     all_values_for,
+    unused_field_name,
 )
 
 
@@ -228,3 +229,47 @@ class TestAllValuesFor:
     def test_no_matches(self):
         data = [{"a": 1}]
         assert all_values_for(data, "z") == []
+
+
+# ---------------------------------------------------------------------------
+# unused_field_name (bug fix tests)
+# ---------------------------------------------------------------------------
+class TestUnusedFieldName:
+    def test_returns_first_unused(self):
+        data = [{"a": 1}]
+        result = unused_field_name(data, ["z", "y"])
+        assert result == "z"
+
+    def test_skips_used_names(self):
+        data = [{"a": 1, "b": 2}]
+        result = unused_field_name(data, ["a", "c"])
+        assert result == "c"
+
+    def test_raises_keyerror_when_all_taken(self):
+        """Test that unused_field_name raises KeyError (not NameError) when all names are taken."""
+        data = [{"a": 1, "b": 2, "c": 3}]
+        with pytest.raises(KeyError, match="already taken"):
+            unused_field_name(data, ["a", "b", "c"])
+
+
+# ---------------------------------------------------------------------------
+# unnest_child_dict error path (bug fix tests)
+# ---------------------------------------------------------------------------
+class TestUnnestChildDictErrorPath:
+    def test_overlap_logs_error_without_typeerror(self, caplog):
+        """Test that unnest_child_dict logs an error (not TypeError) on field overlap."""
+        import logging
+        # Create a parent with a field that will overlap when unnesting
+        parent = {
+            "province": "Québec",
+            "capital_name": "Existing",  # This will conflict
+            "capital": {"name": "Québec City", "pop": 491140}
+        }
+        # This should log an error, not raise TypeError
+        with caplog.at_level(logging.DEBUG):
+            unnest_child_dict(parent, "capital", "provinces")
+        # The function should return early without modifying parent
+        assert "capital" in parent  # Key should still exist
+        assert parent["capital_name"] == "Existing"  # Should not be overwritten
+        # Check that an error was logged
+        assert any("Could not unnest" in record.message for record in caplog.records if record.levelno >= logging.ERROR)

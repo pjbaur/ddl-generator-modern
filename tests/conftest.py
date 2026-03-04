@@ -17,6 +17,15 @@ def here():
     return _here
 
 
+@pytest.fixture(autouse=True)
+def reset_table_index():
+    """Reset Table.table_index before each test for deterministic table names."""
+    from ddlgenerator.ddlgenerator import Table
+    Table.table_index = 0
+    yield
+    Table.table_index = 0
+
+
 @pytest.fixture
 def table_class():
     """Provide the Table class, handling import variations."""
