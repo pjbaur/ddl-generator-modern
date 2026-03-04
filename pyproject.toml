@@ -52,8 +52,8 @@ dev = [
 ddlgenerator = "ddlgenerator.console:generate"
 
 [project.urls]
-Homepage = "https://github.com/catherinedevlin/ddl-generator"
-Repository = "https://github.com/catherinedevlin/ddl-generator"
+Homepage = "https://github.com/pjbaur/ddl-generator"
+Repository = "https://github.com/pjbaur/ddl-generator"
 
 [tool.setuptools.packages.find]
 include = ["ddlgenerator*"]

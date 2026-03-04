@@ -2,17 +2,17 @@
 DDL Generator
 =============
 
-.. image:: https://github.com/catherinedevlin/ddl-generator/actions/workflows/ci.yml/badge.svg
-   :target: https://github.com/catherinedevlin/ddl-generator/actions/workflows/ci.yml
+.. image:: https://github.com/pjbaur/ddl-generator/actions/workflows/ci.yml/badge.svg
+   :target: https://github.com/pjbaur/ddl-generator/actions/workflows/ci.yml
    :alt: CI Status
 
-.. image:: https://img.shields.io/pypi/pyversions/ddl-generator.svg
+.. image:: https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue.svg
    :target: https://pypi.org/project/ddl-generator/
    :alt: Python Versions
 
-.. image:: https://img.shields.io/pypi/v/ddl-generator.svg
-   :target: https://pypi.org/project/ddl-generator/
-   :alt: PyPI Version
+.. image:: https://img.shields.io/badge/version-0.2.0-green.svg
+   :target: https://github.com/pjbaur/ddl-generator/releases
+   :alt: Version
 
 Infers SQL DDL (Data Definition Language) from table data.
 
