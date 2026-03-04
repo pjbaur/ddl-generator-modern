@@ -79,20 +79,24 @@ Options
 ::
 
       -h, --help            show this help message and exit
-      -k KEY, --key KEY     Field to use as primary key
+      -k KEY, --key KEY     If primary key needed, name it this
+      --force-key           Force every table to have a primary key
       -r, --reorder         Reorder fields alphabetically, ``key`` first
       -u, --uniques         Include UNIQUE constraints where data is unique
       -t, --text            Use variable-length TEXT columns instead of VARCHAR
       -d, --drops           Include DROP TABLE statements
       -i, --inserts         Include INSERT statements
       --no-creates          Do not include CREATE TABLE statements
+      --limit LIMIT         Max number of rows to read from each source file
+      -c CUSHION, --cushion CUSHION
+                            Extra length to pad column sizes with
       --save-metadata-to FILENAME
                             Save table definition in FILENAME for later --use-
                             saved-metadata run
       --use-metadata-from FILENAME
                             Use metadata saved in FROM for table definition, do
                             not re-analyze table structure
-      -l LOG, --log LOG     log level (CRITICAL, FATAL, ERROR, DEBUG, INFO, WARNING)
+      -l LOG, --log LOG     log level (CRITICAL, FATAL, ERROR, DEBUG, INFO, WARN)
 
 Generate SQLAlchemy models
 --------------------------
@@ -161,7 +165,7 @@ From PyPI::
 
 From source::
 
-    git clone https://github.com/catherinedevlin/ddl-generator.git
+    git clone https://github.com/pjbaur/ddl-generator.git
     cd ddl-generator
     pip install .
 
