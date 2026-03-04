@@ -1,0 +1,85 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ddl-generator"
+version = "0.2.0"
+description = "Generates SQL DDL that will accept Python data"
+readme = "README.rst"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Catherine Devlin", email = "catherine.devlin@gmail.com" },
+]
+keywords = ["ddl", "sql", "generator", "sqlalchemy"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "python-dateutil>=2.8,<3.0",
+    "sqlalchemy>=2.0,<3.0",
+    "dateutils",
+    "pyyaml>=6.0,<7.0",
+    "beautifulsoup4>=4.12,<5.0",
+    "requests>=2.28,<3.0",
+    "data_dispenser>=0.2.5.1",
+]
+
+[project.optional-dependencies]
+mongo = ["pymongo>=4.0,<5.0"]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "coverage",
+    "flake8",
+    "ruff",
+    "mypy",
+    "types-python-dateutil",
+    "types-requests",
+    "types-PyYAML",
+    "tox>=4.0",
+]
+
+[project.scripts]
+ddlgenerator = "ddlgenerator.console:generate"
+
+[project.urls]
+Homepage = "https://github.com/catherinedevlin/ddl-generator"
+Repository = "https://github.com/catherinedevlin/ddl-generator"
+
+[tool.setuptools.packages.find]
+include = ["ddlgenerator*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "mongo: tests requiring a running MongoDB instance",
+]
+
+[tool.coverage.run]
+source = ["ddlgenerator"]
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_ignores = true
+ignore_missing_imports = true
