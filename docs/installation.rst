@@ -33,7 +33,7 @@ From Source
 
 .. code-block:: bash
 
-    $ git clone https://github.com/catherinedevlin/ddl-generator.git
+    $ git clone https://github.com/pjbaur/ddl-generator.git
     $ cd ddl-generator
     $ pip install .
 

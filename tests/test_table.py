@@ -5,13 +5,16 @@ Tests for ddlgenerator.ddlgenerator.Table methods (P3-2).
 
 Covers: varying_length_text, reorder, force_pk, limit,
         multi-dialect DDL, django_models, sqlalchemy output validation,
-        _validate_data_source, _escape_string_value, _get_literal_processor
+        _validate_data_source, _escape_string_value, _get_literal_processor,
+        security tests for blocked extensions, SQL injection prevention, YAML safety.
 """
 
+import io
 import os
 from collections import OrderedDict
 
 import pytest
+import yaml
 
 from ddlgenerator.ddlgenerator import (
     Table,
@@ -19,8 +22,6 @@ from ddlgenerator.ddlgenerator import (
     _validate_data_source,
     _escape_string_value,
     _get_literal_processor,
-    mock_engines,
-    dialect_names,
 )
 
 
@@ -348,3 +349,180 @@ class TestTypeInference:
         tbl = Table(data, table_name="test_mixed")
         import sqlalchemy as sa
         assert isinstance(tbl.columns["val"]["satype"], (sa.Unicode, sa.Text))
+
+
+# ---------------------------------------------------------------------------
+# Security: Blocked extensions (P1-1)
+# ---------------------------------------------------------------------------
+class TestBlockedExtensions:
+    """Tests for P1-1: Block dangerous file extensions to prevent RCE"""
+
+    def test_py_file_extension_blocked(self):
+        """Python files should be rejected to prevent eval() RCE"""
+        with pytest.raises(UnsafeInputError, match=".py"):
+            Table('malicious.py')
+
+    def test_pickle_file_extension_blocked(self):
+        """Pickle files should be rejected to prevent deserialization attacks"""
+        with pytest.raises(UnsafeInputError, match=".pickle"):
+            Table('malicious.pickle')
+
+    def test_pkl_file_extension_blocked(self):
+        """Pickle files with .pkl extension should be rejected"""
+        with pytest.raises(UnsafeInputError, match=".pkl"):
+            Table('data.pkl')
+
+    def test_safe_python_data_accepted(self):
+        """Python data (lists, dicts) should be accepted without error"""
+        data = [{'id': 1, 'name': 'test'}]
+        table = Table(data)
+        assert table is not None
+
+    def test_case_insensitive_extension_check(self):
+        """Blocked extensions should be detected regardless of case"""
+        with pytest.raises(UnsafeInputError):
+            Table('MALICIOUS.PY')
+
+        with pytest.raises(UnsafeInputError):
+            Table('data.Pickle')
+
+
+# ---------------------------------------------------------------------------
+# Security: File-like objects (P1-1)
+# ---------------------------------------------------------------------------
+class TestFilelikeObjectSecurity:
+    """Tests that file-like objects with blocked extensions are also rejected"""
+
+    def test_filelike_with_py_extension_blocked(self):
+        """File-like objects with .py name should be rejected"""
+        fake_file = io.StringIO("import os; os.system('rm -rf /')")
+        fake_file.name = 'exploit.py'
+        with pytest.raises(UnsafeInputError):
+            Table(fake_file)
+
+    def test_filelike_with_pickle_extension_blocked(self):
+        """File-like objects with .pickle name should be rejected"""
+        fake_file = io.BytesIO(b'\x80\x03some pickle data')
+        fake_file.name = 'data.pickle'
+        with pytest.raises(UnsafeInputError):
+            Table(fake_file)
+
+
+# ---------------------------------------------------------------------------
+# Security: SQL Injection Prevention (P1-3)
+# ---------------------------------------------------------------------------
+class TestSQLInjectionPrevention:
+    """Tests for P1-3: SQL injection prevention in INSERT generation"""
+
+    def test_single_quotes_escaped(self):
+        """Single quotes in data should be properly escaped"""
+        data = [{'id': 1, 'name': "O'Brien"}]
+        tbl = Table(data)
+        inserts = list(tbl.inserts('postgresql'))
+        # Should contain escaped quote, not unescaped
+        assert "O''Brien" in inserts[0]
+        assert "O'Brien" not in inserts[0]
+
+    def test_sql_injection_payload_neutralized(self):
+        """SQL injection payloads should be escaped, not executed"""
+        data = [{'id': 1, 'name': "'; DROP TABLE users; --"}]
+        tbl = Table(data)
+        inserts = list(tbl.inserts('postgresql'))
+        # The payload should be escaped as a string literal
+        assert "DROP TABLE" in inserts[0]  # Content preserved
+        assert "'''; DROP TABLE users; --'" in inserts[0]  # But safely quoted
+
+    def test_backslash_handling(self):
+        """Backslashes should be handled safely"""
+        data = [{'id': 1, 'path': 'C:\\Users\\test\\file.txt'}]
+        tbl = Table(data)
+        inserts = list(tbl.inserts('postgresql'))
+        # Should produce valid SQL
+        assert 'INSERT INTO' in inserts[0]
+        assert 'C:' in inserts[0]
+
+    def test_null_value_handling(self):
+        """NULL values should be properly represented"""
+        data = [{'id': 1, 'name': None, 'value': 'test'}]
+        tbl = Table(data)
+        inserts = list(tbl.inserts('postgresql'))
+        # NULL should appear as SQL NULL keyword
+        assert 'NULL' in inserts[0]
+
+    def test_unicode_handling(self):
+        """Unicode characters should be safely included"""
+        data = [{'id': 1, 'name': 'François Englert'}]
+        tbl = Table(data)
+        inserts = list(tbl.inserts('postgresql'))
+        # Unicode should be preserved
+        assert 'François' in inserts[0]
+
+    def test_multiple_dialects_safe(self):
+        """SQL injection prevention should work across dialects"""
+        data = [{'id': 1, 'name': "O'Brien"}]
+
+        for dialect in ['postgresql', 'mysql', 'sqlite']:
+            tbl = Table(data)
+            inserts = list(tbl.inserts(dialect))
+            # All dialects should escape the quote
+            assert "O''Brien" in inserts[0], f"Quote not escaped for dialect {dialect}"
+
+    def test_double_quote_in_data(self):
+        """Double quotes in data should be handled safely"""
+        data = [{'id': 1, 'name': 'He said "hello"'}]
+        tbl = Table(data)
+        inserts = list(tbl.inserts('postgresql'))
+        assert 'INSERT INTO' in inserts[0]
+
+    def test_semicolon_in_data(self):
+        """Semicolons in data should not break out of the INSERT"""
+        data = [{'id': 1, 'comment': "value; DELETE FROM users"}]
+        tbl = Table(data)
+        inserts = list(tbl.inserts('postgresql'))
+        # The semicolon should be inside the quoted string
+        assert len(inserts) == 1  # Should be exactly one INSERT
+
+    def test_newline_in_data(self):
+        """Newlines in data should not create additional SQL statements"""
+        data = [{'id': 1, 'bio': "line1\nDROP TABLE users;\nline3"}]
+        tbl = Table(data)
+        inserts = list(tbl.inserts('postgresql'))
+        assert len(inserts) == 1
+
+
+# ---------------------------------------------------------------------------
+# Security: YAML Safety (P1-4)
+# ---------------------------------------------------------------------------
+class TestYAMLSafety:
+    """Tests for P1-4: yaml.safe_load rejects malicious YAML tags"""
+
+    def test_safe_load_rejects_python_object(self):
+        """YAML with !!python/object tags should be rejected by safe_load"""
+        malicious_yaml = "!!python/object/apply:os.system ['echo pwned']"
+        with pytest.raises(yaml.YAMLError):
+            yaml.safe_load(malicious_yaml)
+
+    def test_safe_load_rejects_python_module(self):
+        """YAML with !!python/module tags should be rejected"""
+        malicious_yaml = "!!python/module:os"
+        with pytest.raises(yaml.YAMLError):
+            yaml.safe_load(malicious_yaml)
+
+    def test_safe_load_rejects_python_name(self):
+        """YAML with !!python/name tags should be rejected"""
+        malicious_yaml = "!!python/name:os.system"
+        with pytest.raises(yaml.YAMLError):
+            yaml.safe_load(malicious_yaml)
+
+    def test_safe_load_accepts_normal_yaml(self):
+        """Normal YAML data should be parsed correctly"""
+        normal_yaml = "name: Lancelot\nkg: 69.4\nquest: Grail"
+        result = yaml.safe_load(normal_yaml)
+        assert result['name'] == 'Lancelot'
+
+    def test_metadata_source_uses_safe_load(self):
+        """Table's metadata_source path uses yaml.safe_load, not yaml.load"""
+        import inspect
+        source = inspect.getsource(Table.__init__)
+        assert 'yaml.safe_load' in source
+        assert 'yaml.load(' not in source

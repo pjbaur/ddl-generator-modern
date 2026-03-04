@@ -13,7 +13,7 @@ Types of Contributions
 Report Bugs
 ~~~~~~~~~~~
 
-Report bugs at https://github.com/catherinedevlin/ddl-generator/issues.
+Report bugs at https://github.com/pjbaur/ddl-generator/issues.
 
 If you are reporting a bug, please include:
 
@@ -43,7 +43,7 @@ articles, and such.
 Submit Feedback
 ~~~~~~~~~~~~~~~
 
-The best way to send feedback is to file an issue at https://github.com/catherinedevlin/ddl-generator/issues.
+The best way to send feedback is to file an issue at https://github.com/pjbaur/ddl-generator/issues.
 
 If you are proposing a feature:
 
@@ -107,7 +107,7 @@ Before you submit a pull request, check that it meets these guidelines:
    your new functionality into a function with a docstring, and add the
    feature to the list in README.rst.
 3. The pull request should work for Python 3.10, 3.11, 3.12, and 3.13. Check
-   https://github.com/catherinedevlin/ddl-generator/actions
+   https://github.com/pjbaur/ddl-generator/actions
    and make sure that the tests pass for all supported Python versions.
 4. Code coverage should not decrease. Aim for at least 80% coverage.
 

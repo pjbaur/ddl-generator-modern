@@ -75,7 +75,7 @@ html_theme = 'alabaster'
 # documentation.
 html_theme_options = {
     'description': 'Infers SQL DDL from table data',
-    'github_user': 'catherinedevlin',
+    'github_user': 'pjbaur',
     'github_repo': 'ddl-generator',
     'github_banner': True,
 }

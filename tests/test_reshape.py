@@ -7,13 +7,11 @@ Covers: walk_and_clean, _id_fieldname, UniqueKey, unnest_child_dict,
         unnest_children, ParentTable
 """
 
-import copy
 from collections import OrderedDict, namedtuple
 
 import pytest
 
 from ddlgenerator.reshape import (
-    clean_key_name,
     walk_and_clean,
     _id_fieldname,
     UniqueKey,

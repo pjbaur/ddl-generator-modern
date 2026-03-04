@@ -24,19 +24,17 @@ clean-pyc:
 	find . -name '*~' -exec rm -f {} +
 
 lint:
-	flake8 ddlgenerator tests
+	ruff check ddlgenerator tests
+	flake8 ddlgenerator tests --max-line-length=120 --ignore=E501,W503
 
 test:
-	python setup.py test
+	pytest --tb=short
 
 test-all:
 	tox
 
 coverage:
-	coverage run --source ddlgenerator setup.py test
-	coverage report -m
-	coverage html
-	open htmlcov/index.html
+	pytest --cov=ddlgenerator --cov-report=term-missing --cov-report=html
 
 docs:
 	rm -f docs/ddlgenerator.rst
@@ -47,8 +45,8 @@ docs:
 	open docs/_build/html/index.html
 
 release: clean
-	python setup.py sdist upload
+	python -m build && twine upload dist/*
 
 sdist: clean
-	python setup.py sdist
+	python -m build --sdist
 	ls -l dist
