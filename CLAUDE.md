@@ -2,7 +2,7 @@
 
 Python tool that infers SQL DDL (CREATE TABLE statements) from table data. Supports multiple SQL dialects, SQLAlchemy models, and Django ORM models.
 
-**Repository:** Fork of `catherinedevlin/ddl-generator` (upstream). Main branch: `master`.
+**Repository:** Fork of `catherinedevlin/ddl-generator` (upstream). Main branch: `main`.
 
 ## Project Structure
 
@@ -21,24 +21,21 @@ docs/                   # Sphinx documentation
 
 ```bash
 # Install from source
-pip3 install -e .
+pip3 install -e ".[dev]"
 
 # Run tests
-python setup.py test
+python -m unittest discover -s tests
 # or
-python -m unittest tests.test_ddlgenerator
-# or
-nosetests
+pytest
 
 # Run with tox (multiple Python versions)
 tox
 
 # Coverage
-coverage run --source ddlgenerator setup.py test
-coverage report -m
+pytest --cov=ddlgenerator --cov-report=term-missing
 
 # Lint
-flake8 ddlgenerator
+ruff check ddlgenerator
 ```
 
 ## CLI Usage
