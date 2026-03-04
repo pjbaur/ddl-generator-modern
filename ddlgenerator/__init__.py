@@ -1,9 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+from importlib.metadata import version, PackageNotFoundError
+
 __author__ = 'Catherine Devlin'
 __email__ = 'catherine.devlin@gmail.com'
-__version__ = '0.1.9'
+
+try:
+    __version__ = version("ddl-generator")
+except PackageNotFoundError:
+    __version__ = "0.0.0"
 
 # Monkey-patch data_dispenser's _open to fix removed 'rU' file mode (Python 3.12+)
 # data_dispenser 0.2.5.1 is the latest release and is unmaintained.
