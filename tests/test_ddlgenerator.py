@@ -100,15 +100,16 @@ class TestFromRawPythonData(unittest.TestCase):
         self.assertIn("Column('capital', Unicode", generated)
 
     def test_django(self):
+        import contextlib
+        import io
+
         tbl = Table(self.merovingians)
-        generated = tbl.django_models()
-        #print("generated")
-        #print(generated)
-        #self.assertIn("(models.Model):", generated)
-        #self.assertIn("name_name_id =", generated)
-        tbl = Table(self.canada)
-        generated = tbl.django_models()
-        #self.assertIn("name =", generated)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            tbl.django_models()
+        generated = output.getvalue()
+        self.assertIn("models.Model", generated)
+        self.assertIn("name_name_id", generated)
         
     def test_cushion(self):
         tbl = Table(self.merovingians, data_size_cushion=0)

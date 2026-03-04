@@ -45,6 +45,7 @@ dev = [
     "types-requests",
     "types-PyYAML",
     "tox>=4.0",
+    "django>=4.2,<6.0",
 ]
 
 [project.scripts]

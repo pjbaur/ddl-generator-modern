@@ -161,6 +161,24 @@ class TestSQLAlchemyModel:
         output = tbl.sqlalchemy()
         assert "Column(" in output
 
+    def test_sqlalchemy_sa2x_metadata_no_bind(self):
+        """SQLAlchemy 2.x style: MetaData() without bind= parameter"""
+        data = [{"id": 1, "name": "test"}]
+        tbl = Table(data, table_name="test_sa2x")
+        output = tbl.sqlalchemy()
+        # Should use MetaData() not MetaData(bind=...)
+        assert "metadata = MetaData()" in output or "metadata" in output
+        assert "MetaData(bind=" not in output
+
+    def test_sqlalchemy_sa2x_create_all(self):
+        """SQLAlchemy 2.x style: metadata.create_all(engine) not .create()"""
+        data = [{"id": 1, "name": "test"}]
+        tbl = Table(data, table_name="test_sa2x_create")
+        output = tbl.sqlalchemy()
+        # Should use metadata.create_all(engine) not table.create()
+        assert "metadata.create_all(engine)" in output
+        assert ".create()" not in output
+
 
 # ---------------------------------------------------------------------------
 # sql() combined method

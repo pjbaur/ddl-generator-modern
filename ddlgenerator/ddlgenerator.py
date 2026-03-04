@@ -387,7 +387,7 @@ class Table(object):
 
         %s
 
-        %s.create()""" )
+        metadata.create_all(engine)""" )
 
     def sqlalchemy(self, is_top=True):
         """Dumps Python code to set up the table's  SQLAlchemy model"""
@@ -404,7 +404,7 @@ class Table(object):
             constraint_defs = ',\n  '.join(constraint_defs) + ','
             table_def = table_def.replace('schema=None', '\n  ' + constraint_defs + 'schema=None')
 
-        table_def = table_def.replace("MetaData(bind=None)", "metadata")
+        table_def = table_def.replace("MetaData()", "metadata")
         table_def = table_def.replace("Column(", "\n  Column(")
         table_def = table_def.replace("schema=", "\n  schema=")
         result = [table_def, ]
@@ -415,7 +415,7 @@ class Table(object):
             sqla_imports &= set(dir(sa))
             sqla_imports = sorted(sqla_imports)
             result = self.sqlalchemy_setup_template % (
-                ", ".join(sqla_imports), result, self.table.name)
+                ", ".join(sqla_imports), result)
             result = textwrap.dedent(result)
         return result
 
@@ -443,6 +443,7 @@ class Table(object):
             c = conn.cursor()
             for i in u:
                 c.execute(i)
+            conn.commit()
 
             if not settings.configured:
                 settings.configure(
@@ -453,7 +454,7 @@ class Table(object):
                     DATABASES = {'default' : {'NAME':db_filename,'ENGINE':'django.db.backends.sqlite3'}},
                     )
                 django.setup()
-            management.call_command('inspectdb', interactive=False)
+            management.call_command('inspectdb')
             os.remove(db_filename)
 
     _datetime_format = {}  # TODO: test the various RDBMS for power to read the standard
@@ -615,7 +616,7 @@ import datetime
 # check for other imports you may need, like your db driver
 from sqlalchemy import create_engine, MetaData, ForeignKey
 engine = create_engine(r'sqlite:///:memory:')
-metadata = MetaData(bind=engine)
+metadata = MetaData()
 conn = engine.connect()"""
 
 def sqla_inserter_call(table_names):
