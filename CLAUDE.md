@@ -13,6 +13,8 @@ ddlgenerator/           # Main package
   reshape.py            # Data reshaping and nested data handling
   typehelpers.py        # Type coercion and analysis
   reserved.py           # SQL reserved words
+  sources.py            # Data source loading (files, URLs, Python objects)
+  url_utils.py          # URL validation and safe fetching (SSRF protection)
 tests/                  # Unit tests + test data (yaml, json, csv, xls, html)
 docs/                   # Sphinx documentation
 ```
@@ -21,11 +23,9 @@ docs/                   # Sphinx documentation
 
 ```bash
 # Install from source
-pip3 install -e ".[dev]"
+pip install -e ".[dev]"
 
 # Run tests
-python -m unittest discover -s tests
-# or
 pytest
 
 # Run with tox (multiple Python versions)
@@ -35,7 +35,8 @@ tox
 pytest --cov=ddlgenerator --cov-report=term-missing
 
 # Lint
-ruff check ddlgenerator
+ruff check ddlgenerator tests
+flake8 ddlgenerator tests --max-line-length=120 --ignore=E501,W503
 ```
 
 ## CLI Usage
@@ -49,10 +50,11 @@ ddlgenerator django mydata.yaml              # Django models
 
 ## Key Dependencies
 
-- sqlalchemy, pyyaml, python-dateutil, beautifulsoup4, requests, data_dispenser
+- sqlalchemy (2.0+), pyyaml, python-dateutil, beautifulsoup4, requests, xlrd
 
 ## Architecture Notes
 
 - `Table` class (ddlgenerator.py) is the core — it analyzes data, infers column types, detects child tables from nested structures, and generates SQL via SQLAlchemy's DDL compiler.
-- Data input is abstracted through the `data_dispenser` package (files, URLs, Python objects, MongoDB).
+- Data input is handled through `sources.py` (files, URLs, Python objects, MongoDB) with SSRF protection via `url_utils.py`.
 - SQL dialect support uses SQLAlchemy mock engines.
+- Security: No pickle support, uses yaml.safe_load(), URL validation for SSRF prevention, SQL injection prevention in INSERT generation.
