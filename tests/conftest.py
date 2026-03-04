@@ -8,18 +8,6 @@ try:
 except ImportError:
     pymongo = None
 
-# Monkey-patch data_dispenser's _open to fix removed 'rU' file mode on Python 3.12+
-try:
-    import data_dispenser.sources as _ds_sources
-    _ds_original_open = _ds_sources._open
-
-    def _patched_open(filename):
-        return open(filename, 'r')
-
-    _ds_sources._open = _patched_open
-except (ImportError, AttributeError):
-    pass
-
 
 @pytest.fixture
 def here():

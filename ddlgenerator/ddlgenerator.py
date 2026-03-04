@@ -52,7 +52,7 @@ try:
     import pymongo
 except ImportError:
     pymongo = None
-from data_dispenser.sources import Source
+from ddlgenerator.sources import Source
 try:
     import ddlgenerator.typehelpers as th
     from ddlgenerator import reshape

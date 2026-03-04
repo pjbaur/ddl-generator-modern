@@ -10,7 +10,7 @@ except ImportError:
     from ddlgenerator import sqla_head, sqla_inserter_call
     from ddlgenerator import emit_db_sequence_updates
 # If anyone can explain these import differences to me, I will buy you a cookie.
-from data_dispenser import sqlalchemy_table_sources
+from ddlgenerator.sources import sqlalchemy_table_sources
 
 
 parser = argparse.ArgumentParser(description='Generate DDL based on data')
