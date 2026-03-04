@@ -157,8 +157,8 @@ def unnest_child_dict(parent, key, parent_name=''):
         new_field_names = ['%s_%s' % (key, child_key.strip('_')) for child_key in val]
         overlap = (set(new_field_names) & set(parent)) - set(id or [])
         if overlap:
-            logging.error("Could not unnest child %s; %s present in %s"
-                          % (name, key, ','.join(overlap), parent_name))
+            logging.error("Could not unnest child %s; %s already present in %s (child key: %s)"
+                          % (name, ','.join(overlap), parent_name, key))
             return
         for (child_key, child_val) in val.items():
             new_field_name = '%s_%s' % (key, child_key.strip('_'))
@@ -182,7 +182,7 @@ def unused_field_name(data, preferences):
     for pref in preferences:
         if not all_values_for(data, pref):
             return pref
-    raise KeyError("All desired names already taken in %s" % self.name)
+    raise KeyError("All desired names already taken in %s" % str(preferences))
 
 class ParentTable(list):
     """
