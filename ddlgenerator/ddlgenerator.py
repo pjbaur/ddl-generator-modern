@@ -438,24 +438,29 @@ class Table(object):
             import os
 
             db_filename = 'generated_db.db'
+            conn = None
+            try:
+                conn = sqlite3.connect(db_filename)
+                c = conn.cursor()
+                for i in u:
+                    c.execute(i)
+                conn.commit()
 
-            conn = sqlite3.connect(db_filename)
-            c = conn.cursor()
-            for i in u:
-                c.execute(i)
-            conn.commit()
-
-            if not settings.configured:
-                settings.configure(
-                    DEBUG='on',
-                    # Throwaway key for inspectdb only - not used for any security-sensitive operations
-                    SECRET_KEY=secrets.token_hex(32),
-                    ALLOWED_HOSTS='localhost',
-                    DATABASES = {'default' : {'NAME':db_filename,'ENGINE':'django.db.backends.sqlite3'}},
-                    )
-                django.setup()
-            management.call_command('inspectdb')
-            os.remove(db_filename)
+                if not settings.configured:
+                    settings.configure(
+                        DEBUG='on',
+                        # Throwaway key for inspectdb only - not used for any security-sensitive operations
+                        SECRET_KEY=secrets.token_hex(32),
+                        ALLOWED_HOSTS='localhost',
+                        DATABASES = {'default' : {'NAME':db_filename,'ENGINE':'django.db.backends.sqlite3'}},
+                        )
+                    django.setup()
+                management.call_command('inspectdb')
+            finally:
+                if conn is not None:
+                    conn.close()
+                if os.path.exists(db_filename):
+                    os.remove(db_filename)
 
     _datetime_format = {}  # TODO: test the various RDBMS for power to read the standard
     def _prep_datum(self, datum, dialect, col, needs_conversion):
