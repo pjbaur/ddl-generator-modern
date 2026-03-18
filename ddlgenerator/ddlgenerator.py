@@ -33,6 +33,8 @@ Remember to enclose the file path in quotes to prevent the shell
 from expanding the argument (if it does, ddlgenerator will run
 against each file *separately*, setting up one table for each).
 """
+from __future__ import annotations
+
 from collections import OrderedDict
 import copy
 import datetime
@@ -44,6 +46,8 @@ import pprint
 import re
 import secrets
 import textwrap
+from typing import Any, Dict, Iterable, Iterator, List, Optional, TYPE_CHECKING, Union
+
 import sqlalchemy as sa
 from sqlalchemy.schema import CreateTable
 import dateutil.parser
@@ -195,9 +199,9 @@ class Table(object):
     );
     """
 
-    table_index = 0
+    table_index: int = 0
 
-    def _find_table_name(self, data):
+    def _find_table_name(self, data: Any) -> None:
         if not self.table_name:
             if pymongo and isinstance(data, pymongo.collection.Collection):
                 self.table_name = data.name
@@ -210,12 +214,24 @@ class Table(object):
         self.table_name = reshape.clean_key_name(self.table_name)
         Table.table_index += 1
 
-    def __init__(self, data, table_name=None, default_dialect=None,
-                 save_metadata_to=None, metadata_source=None,
-                 varying_length_text=False, uniques=False,
-                 pk_name=None, force_pk=False, data_size_cushion=0,
-                 _parent_table=None, _fk_field_name=None, reorder=False,
-                 loglevel=logging.WARNING, limit=None):
+    def __init__(
+        self,
+        data: Any,
+        table_name: Optional[str] = None,
+        default_dialect: Optional[str] = None,
+        save_metadata_to: Optional[str] = None,
+        metadata_source: Optional[Union[str, OrderedDict]] = None,
+        varying_length_text: bool = False,
+        uniques: bool = False,
+        pk_name: Optional[str] = None,
+        force_pk: bool = False,
+        data_size_cushion: int = 0,
+        _parent_table: Optional["Table"] = None,
+        _fk_field_name: Optional[str] = None,
+        reorder: bool = False,
+        loglevel: int = logging.WARNING,
+        limit: Optional[int] = None,
+    ) -> None:
         """
         Initialize a Table and load its data.
 
