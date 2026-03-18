@@ -30,18 +30,18 @@ Audit performed 2026-03-18. Project is stable (219/220 tests pass, clean working
 - `Table._dropper()` dialect matrix (sybase, oracle, mssql, drizzle) is untested.
 - `Table._saveable_metadata()` round-trip is untested.
 
-### [ ] 6. Zero type annotations
+### [x] 6. Zero type annotations
 - No type hints anywhere in production code.
 - `mypy` is configured but `ignore_outcome = true` in tox, so it's never enforced.
 - Best candidates to start: `url_utils.py` (simple types), `typehelpers.py` (complex unions, highest value), `Table.__init__()` (15 params).
 
-### [ ] 7. Overly broad exception handling
+### [x] 7. Overly broad exception handling
 - `sources.py:318,326` — `except Exception: pass` silently swallows all errors during source dispatch.
 - `typehelpers.py:97` — `except Exception: pass` hides date-parsing failures.
 - `url_utils.py:157` — `except Exception: return False` broader than necessary.
 - `sources.py:374` — `except Exception as e` in `_deserialize()` catches too broadly (won't propagate `KeyboardInterrupt`-type signals).
 
-### [ ] 8. Dead code / stale logic
+### [x] 8. Dead code / stale logic
 - `ddlgenerator.py:316` — `if True` clause is dead noise in column loop.
 - `ddlgenerator.py:460` — `_datetime_format = {}` is always empty, making branch at line 478 unreachable.
 - `sources.py:28,34` — unused imports (`BytesIO`, `re`).
