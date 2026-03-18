@@ -96,13 +96,14 @@ def generate(args=None, namespace=None, file=None):
     for datafile in args.datafile:
         if is_sqlalchemy_url.search(datafile):
             table_names_for_insert = []
+            t = None
             for tbl in sqlalchemy_table_sources(datafile):
                 t = generate_one(tbl, args, table_name=tbl.generator.name, file=file)
                 if t.data:
                     table_names_for_insert.append(tbl.generator.name)
             if args.inserts and args.dialect == 'sqlalchemy':
                 print(sqla_inserter_call(table_names_for_insert), file=file)
-            if t and args.inserts:
+            if t is not None and args.inserts:
                 for seq_update in emit_db_sequence_updates(t.source.db_engine):
                     if args.dialect == 'sqlalchemy':
                         print('    conn.execute("%s")' % seq_update, file=file)
