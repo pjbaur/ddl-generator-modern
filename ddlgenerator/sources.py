@@ -25,13 +25,12 @@ Security notes:
 """
 
 from collections import OrderedDict
-from io import StringIO, BytesIO
+from io import StringIO
 import csv
 import itertools
 import json
 import logging
 import os.path
-import re
 import urllib.parse
 
 try:
