@@ -8,9 +8,15 @@ attacks and adds request hardening (timeouts, size limits) when fetching data
 from URLs.
 """
 
+from __future__ import annotations
+
 import ipaddress
 import logging
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
+
+if TYPE_CHECKING:
+    from requests import Response
 
 # Try to import requests, but don't fail if not available
 try:
@@ -52,7 +58,7 @@ class ResponseTooLargeError(URLValidationError):
     pass
 
 
-def is_private_ip(ip_str):
+def is_private_ip(ip_str: str) -> bool:
     """
     Check if an IP address is in a private/blocked range.
 
@@ -73,7 +79,7 @@ def is_private_ip(ip_str):
         return False
 
 
-def validate_url_scheme(url):
+def validate_url_scheme(url: str) -> None:
     """
     Validate that the URL uses an allowed scheme (http or https).
 
@@ -91,7 +97,7 @@ def validate_url_scheme(url):
         )
 
 
-def validate_url_host(url):
+def validate_url_host(url: str) -> None:
     """
     Validate that the URL host is not a private/blocked IP address.
 
@@ -124,7 +130,7 @@ def validate_url_host(url):
         )
 
 
-def validate_url(url):
+def validate_url(url: str) -> None:
     """
     Validate a URL for security (scheme and SSRF prevention).
 
@@ -139,7 +145,7 @@ def validate_url(url):
     validate_url_host(url)
 
 
-def is_url(data):
+def is_url(data: object) -> bool:
     """
     Check if a string appears to be a URL.
 
@@ -158,7 +164,7 @@ def is_url(data):
         return False
 
 
-def safe_fetch(url, timeout=DEFAULT_TIMEOUT, max_size=MAX_RESPONSE_SIZE):
+def safe_fetch(url: str, timeout: int = DEFAULT_TIMEOUT, max_size: int = MAX_RESPONSE_SIZE) -> Response:
     """
     Safely fetch content from a URL with validation, timeout, and size limits.
 
@@ -211,7 +217,7 @@ def safe_fetch(url, timeout=DEFAULT_TIMEOUT, max_size=MAX_RESPONSE_SIZE):
     return response
 
 
-def safe_fetch_text(url, timeout=DEFAULT_TIMEOUT, max_size=MAX_RESPONSE_SIZE):
+def safe_fetch_text(url: str, timeout: int = DEFAULT_TIMEOUT, max_size: int = MAX_RESPONSE_SIZE) -> str:
     """
     Safely fetch text content from a URL.
 
@@ -230,7 +236,7 @@ def safe_fetch_text(url, timeout=DEFAULT_TIMEOUT, max_size=MAX_RESPONSE_SIZE):
     return response.text
 
 
-def safe_fetch_content(url, timeout=DEFAULT_TIMEOUT, max_size=MAX_RESPONSE_SIZE):
+def safe_fetch_content(url: str, timeout: int = DEFAULT_TIMEOUT, max_size: int = MAX_RESPONSE_SIZE) -> bytes:
     """
     Safely fetch binary content from a URL.
 

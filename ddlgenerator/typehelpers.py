@@ -3,21 +3,32 @@
 """
 Various functions for examining data types.
 """
+from __future__ import annotations
+
 import datetime
 from decimal import Decimal, InvalidOperation
 import doctest
 import logging
 import math
 import re
+from typing import TYPE_CHECKING, Any, Iterable, Tuple, Union
+
 import sqlalchemy as sa
 import dateutil.parser
 
+if TYPE_CHECKING:
+    pass
+
 logger = logging.getLogger(__name__)
 
-def is_scalar(x):
+# Type alias for coerced values - the most specific type a value can be coerced to
+CoercedValue = Union[datetime.datetime, bool, int, Decimal, float, str, None]
+
+
+def is_scalar(x: Any) -> bool:
     return hasattr(x, 'lower') or not hasattr(x, '__iter__')
 
-def precision_and_scale(x):
+def precision_and_scale(x: Union[float, Decimal]) -> Tuple[int, int]:
     """
     From a float, decide what precision and scale are needed to represent it.
 
@@ -51,7 +62,7 @@ def precision_and_scale(x):
 
 _complex_enough_to_be_date = re.compile(r"[\-\. /]")
 _digits_only = re.compile(r"^\d+$")
-def coerce_to_specific(datum):
+def coerce_to_specific(datum: Any) -> CoercedValue:
     """
     Coerces datum to the most specific data type possible
     Order of preference: datetime, boolean, integer, decimal, float, string
@@ -114,7 +125,7 @@ def coerce_to_specific(datum):
         pass
     return str(datum)
 
-def _places_b4_and_after_decimal(d):
+def _places_b4_and_after_decimal(d: Decimal) -> Tuple[int, int]:
     """
     >>> _places_b4_and_after_decimal(Decimal('54.212'))
     (2, 3)
@@ -122,7 +133,7 @@ def _places_b4_and_after_decimal(d):
     tup = d.as_tuple()
     return (len(tup.digits) + tup.exponent, max(-1*tup.exponent, 0))
 
-def worst_decimal(d1, d2):
+def worst_decimal(d1: Decimal, d2: Decimal) -> Decimal:
     """
     Given two Decimals, return a 9-filled decimal representing both enough > 0 digits
     and enough < 0 digits (scale) to accomodate numbers like either.
@@ -134,10 +145,10 @@ def worst_decimal(d1, d2):
     (d2b4, d2after) = _places_b4_and_after_decimal(d2)
     return Decimal('9' * max(d1b4, d2b4) + '.' + '9' * max(d1after, d2after))
 
-def set_worst(old_worst, new_worst):
+def set_worst(old_worst: Any, new_worst: Any) -> Any:
     """
     Pad new_worst with zeroes to prevent it being shorter than old_worst.
-    
+
     >>> set_worst(311920, '48-49')
     '48-490'
     >>> set_worst(98, -2)
@@ -173,7 +184,7 @@ def set_worst(old_worst, new_worst):
         
     return new_worst
     
-def best_representative(d1, d2):
+def best_representative(d1: CoercedValue, d2: CoercedValue) -> Any:
     """
     Given two objects each coerced to the most specific type possible, return the one
     of the least restrictive type.
@@ -216,7 +227,7 @@ def best_representative(d1, d2):
                     worst = set_worst(worst, coerced)
     return worst
 
-def best_coercable(data):
+def best_coercable(data: Iterable[Any]) -> Any:
     """
     Given an iterable of scalar data, returns the datum representing the most specific
     data type the list overall can be coerced into, preferring datetimes, then bools,
@@ -250,7 +261,7 @@ def best_coercable(data):
                     worst = coerced
     return worst
 
-def sqla_datatype_for(datum):
+def sqla_datatype_for(datum: Any) -> Any:
     """
     Given a scalar Python value, picks an appropriate SQLAlchemy data type.
 
