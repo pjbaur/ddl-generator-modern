@@ -270,6 +270,7 @@ class Source:
         self.db_engine = None
         self.generator = None
         self.file = None
+        self._file_opened_by_us = False  # Track if we opened the file
         Source.table_count += 1
 
         # SQLAlchemy MetaData
@@ -389,6 +390,7 @@ class Source:
         deserializers = _DESERIALIZERS.get(file_extension, _FALLBACK_DESERIALIZERS)
         # Keep file open during iteration - stored in self.file
         self.file = open(src, 'r', encoding='utf-8')
+        self._file_opened_by_us = True
         self._deserialize(self.file, deserializers)
 
     def _source_is_open_file(self, src):
@@ -490,6 +492,22 @@ class Source:
         if self.limit and (self.counter > self.limit):
             raise StopIteration
         return next(self.generator)
+
+    def close(self):
+        """Close any file opened by this Source."""
+        if self._file_opened_by_us and self.file is not None:
+            self.file.close()
+            self.file = None
+            self._file_opened_by_us = False
+
+    def __enter__(self):
+        """Enter context manager."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit context manager, ensuring file is closed."""
+        self.close()
+        return False
 
 
 def sqlalchemy_table_sources(url):
