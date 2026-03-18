@@ -62,7 +62,10 @@ except ImportError:
     import reshape
     import url_utils
 
-logging.basicConfig(filename='ddlgenerator.log', filemode='w')
+# Module-level logger - libraries should never call logging.basicConfig()
+# as it configures the root logger and affects all logging in the application.
+# Instead, we create our own logger and let the application configure handlers.
+logger = logging.getLogger(__name__)
 
 # Security: File extensions that are blocked to prevent arbitrary code execution
 # These extensions use eval() or pickle deserialization in data_dispenser
@@ -274,10 +277,10 @@ class Table(object):
         child_metadata_sources = {}
         if metadata_source:
             if isinstance(metadata_source, OrderedDict):
-                logging.info('Column metadata passed in as OrderedDict')
+                logger.info('Column metadata passed in as OrderedDict')
                 self.columns = metadata_source
             else:
-                logging.info('Pulling column metadata from file %s'
+                logger.info('Pulling column metadata from file %s'
                              % metadata_source)
                 with open(metadata_source) as infile:
                     self.columns = yaml.safe_load(infile.read())
@@ -332,7 +335,7 @@ class Table(object):
                 save_metadata_to += '.yaml'
             with open(save_metadata_to, 'w') as outfile:
                 outfile.write(yaml.dump(self._saveable_metadata()))
-            logging.info('Pass ``--save-metadata-to %s`` next time to re-use structure' %
+            logger.info('Pass ``--save-metadata-to %s`` next time to re-use structure' %
                          save_metadata_to)
 
     def _saveable_metadata(self):
@@ -582,7 +585,7 @@ class Table(object):
                     v = str(v_raw)
                     self.comments[k] = 'nested values! example:\n%s' % \
                                        pprint.pformat(v)
-                    logging.warning('in %s: %s' % (k, self.comments[k]))
+                    logger.warning('in %s: %s' % (k, self.comments[k]))
                 v = th.coerce_to_specific(v_raw)
                 if k not in self.columns:
                     self.columns[k] = {'sample_datum': v,
