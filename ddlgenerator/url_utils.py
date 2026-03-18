@@ -154,7 +154,7 @@ def is_url(data):
     try:
         parsed = urlparse(data)
         return parsed.scheme.lower() in ALLOWED_SCHEMES and bool(parsed.netloc)
-    except Exception:
+    except (ValueError, TypeError):
         return False
 
 

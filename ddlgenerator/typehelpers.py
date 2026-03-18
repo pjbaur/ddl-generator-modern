@@ -84,17 +84,17 @@ def coerce_to_specific(datum):
         clean_datum = datum.strip().lstrip('-').lstrip('0').rstrip('.')
         if len(_complex_enough_to_be_date.findall(clean_datum)) < 2:
             digits = _digits_only.search(clean_datum)
-            if (not digits) or (len(digits.group(0)) not in 
+            if (not digits) or (len(digits.group(0)) not in
                                 (4, 6, 8, 12, 14, 17)):
-                raise Exception("false date hit for %s" % datum)
+                raise ValueError("false date hit for %s" % datum)
             if result.date() == datetime.datetime.now().date():
-                raise Exception("false date hit (%s) for %s" % (
+                raise ValueError("false date hit (%s) for %s" % (
                     str(result), datum))
             if not (1700 < result.year < 2150):
-                raise Exception("false date hit (%s) for %s" % (
-                    str(result), datum)) 
+                raise ValueError("false date hit (%s) for %s" % (
+                    str(result), datum))
         return result
-    except Exception as e:
+    except (ValueError, TypeError, OverflowError):
         pass
     if str(datum).strip().lower() in ('0', 'false', 'f', 'n', 'no'):
         return False
