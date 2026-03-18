@@ -332,7 +332,6 @@ class Table(object):
                                           nullable=col['is_nullable'],
                                           doc=self.comments.get(cname))
                                 for (cname, col) in self.columns.items()
-                                if True
                                 ])
 
         self.children = {child_name: Table(child_data, table_name=child_name,
@@ -481,7 +480,6 @@ class Table(object):
                 if os.path.exists(db_filename):
                     os.remove(db_filename)
 
-    _datetime_format = {}  # TODO: test the various RDBMS for power to read the standard
     def _prep_datum(self, datum, dialect, col, needs_conversion):
         """Puts a value in proper format for a SQL string using safe escaping."""
         if datum is None or (needs_conversion and not str(datum).strip()):
@@ -499,11 +497,8 @@ class Table(object):
                 datum = pytype(str(datum))
 
         if isinstance(datum, datetime.datetime) or isinstance(datum, datetime.date):
-            if dialect in self._datetime_format:
-                return datum.strftime(self._datetime_format[dialect])
-            else:
-                # Use safe escaping for datetime string representation
-                return _escape_string_value(str(datum), dialect)
+            # Standard ISO format works across most databases
+            return "'%s'" % datum
         elif hasattr(datum, 'lower'):
             # Use SQLAlchemy's safe literal processor for string escaping
             return _escape_string_value(datum, dialect)
@@ -644,6 +639,12 @@ metadata = MetaData()
 conn = engine.connect()"""
 
 def sqla_inserter_call(table_names):
+    """Generate Python code string that defines an insert_test_rows function.
+
+    Returns a string containing a function definition (not a callable function).
+    The generated function inserts test rows into the specified tables.
+    This is a code generator used by the SQLAlchemy output workflow.
+    """
     return '''
 
 def insert_test_rows(meta, conn):
