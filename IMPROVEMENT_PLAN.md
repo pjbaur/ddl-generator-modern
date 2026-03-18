@@ -6,16 +6,16 @@ Audit performed 2026-03-18. Project is stable (219/220 tests pass, clean working
 
 ## High Priority
 
-### [ ] 1. Bug: Unbound variable in `console.py:105`
+### [x] 1. Bug: Unbound variable in `console.py:105`
 - If `sqlalchemy_table_sources()` yields no tables, `t` is never assigned -> `NameError` at runtime.
 
-### [ ] 2. Library logging anti-pattern (`ddlgenerator.py:65`)
+### [x] 2. Library logging anti-pattern (`ddlgenerator.py:65`)
 - `logging.basicConfig(filename='ddlgenerator.log', filemode='w')` at module level silently creates a log file in the caller's working directory and clobbers their logging config. Libraries should never configure the root logger.
 
-### [ ] 3. Resource leak in `sources.py:391`
+### [x] 3. Resource leak in `sources.py:391`
 - Files opened via `_source_is_path()` are stored in `self.file` but never closed. No `close()` method or context manager support on `Source`.
 
-### [ ] 4. Temp file leak in `ddlgenerator.py:438-458`
+### [x] 4. Temp file leak in `ddlgenerator.py:438-458`
 - `django_models()` creates a temp SQLite DB (`generated_db.db`) that's left on disk if any step fails. No `try/finally` cleanup.
 
 ---
