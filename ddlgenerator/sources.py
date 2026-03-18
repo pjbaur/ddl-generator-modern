@@ -316,7 +316,7 @@ class Source:
             if sources:
                 self._multiple_sources(sources)
                 return
-        except Exception:
+        except (TypeError, ValueError, OSError):
             pass
 
         # Inline data string (try JSON then YAML)
@@ -324,7 +324,7 @@ class Source:
             string_file = StringIO(src.strip())
             self._source_is_open_file(string_file)
             return
-        except Exception:
+        except (TypeError, ValueError, SyntaxError, ParseException):
             pass
 
         raise NotImplementedError('Could not read data source %s of type %s' %
@@ -372,7 +372,8 @@ class Source:
                 open_file.seek(0)
                 self.generator = deserializer(open_file, fieldnames=self.fieldnames)
                 return
-            except Exception as e:
+            except (ValueError, TypeError, SyntaxError, OSError) as e:
+                # Catch specific parsing/file errors, let system exceptions propagate
                 logging.info('%s failed to deserialize %s', deserializer, open_file)
                 logging.info(str(e))
                 errors.append(str(e))
