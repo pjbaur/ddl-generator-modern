@@ -42,7 +42,7 @@ docs:
 	sphinx-apidoc -o docs/ ddlgenerator
 	$(MAKE) -C docs clean
 	$(MAKE) -C docs html
-	open docs/_build/html/index.html
+	python -m webbrowser docs/_build/html/index.html
 
 release: clean
 	python -m build && twine upload dist/*
