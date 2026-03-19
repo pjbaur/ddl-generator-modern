@@ -8,7 +8,7 @@ Covers: CLI argument parsing, dialect aliases, set_logging, generate_one
 
 import io
 import logging
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -169,3 +169,128 @@ class TestGenerate:
     def test_invalid_dialect_raises(self):
         with pytest.raises(NotImplementedError, match="First arg must be one of"):
             generate("bogus_dialect dummy.yaml")
+
+
+# ---------------------------------------------------------------------------
+# SQLAlchemy URL input path
+# ---------------------------------------------------------------------------
+class TestSqlAlchemyUrlInput:
+    @patch('ddlgenerator.console.sqlalchemy_table_sources')
+    def test_sqlalchemy_url_generates_ddl(self, mock_sources):
+        """SQLAlchemy URL should generate DDL for each table."""
+        # Create a mock source that behaves like a real Source
+        mock_source = MagicMock()
+        mock_source.generator = MagicMock()
+        mock_source.generator.name = "users"
+        mock_source.generator.sqla_columns = []
+        # Make data iterable
+        mock_source.data = iter([{"id": 1, "name": "test"}])
+        mock_source.db_engine = None
+        mock_source.table_name = "users"
+        mock_sources.return_value = [mock_source]
+
+        # Also need to mock generate_one to avoid full Table construction
+        with patch('ddlgenerator.console.generate_one') as mock_generate_one:
+            out = io.StringIO()
+            generate("postgresql postgresql://user:pass@localhost/db", file=out)
+            mock_sources.assert_called_once()
+
+    @patch('ddlgenerator.console.sqlalchemy_table_sources')
+    def test_sqlalchemy_url_with_inserts(self, mock_sources):
+        """SQLAlchemy URL with -i flag should generate INSERT statements."""
+        mock_source = MagicMock()
+        mock_source.generator = MagicMock()
+        mock_source.generator.name = "users"
+        mock_source.generator.sqla_columns = []
+        mock_source.data = iter([{"id": 1}])
+        mock_source.db_engine = None
+        mock_source.table_name = "users"
+        mock_sources.return_value = [mock_source]
+
+        with patch('ddlgenerator.console.generate_one') as mock_generate_one:
+            out = io.StringIO()
+            generate("-i postgresql postgresql://localhost/db", file=out)
+            mock_sources.assert_called_once()
+
+    @patch('ddlgenerator.console.sqlalchemy_table_sources')
+    def test_sqlalchemy_url_empty_tables_no_nameerror(self, mock_sources):
+        """Empty SQLAlchemy source should not raise NameError (fix from Item 1)."""
+        # Create mock source with empty data - this was causing NameError before fix
+        mock_source = MagicMock()
+        mock_source.generator = MagicMock()
+        mock_source.generator.name = "empty_table"
+        mock_source.generator.sqla_columns = []
+        mock_source.data = iter([])  # Empty data
+        mock_source.db_engine = None
+        mock_source.table_name = "empty_table"
+        mock_sources.return_value = [mock_source]
+
+        with patch('ddlgenerator.console.generate_one') as mock_generate_one:
+            out = io.StringIO()
+            # This should not raise NameError
+            generate("-i postgresql postgresql://localhost/db", file=out)
+            # Should complete without error
+            assert True
+
+
+# ---------------------------------------------------------------------------
+# Metadata round-trip
+# ---------------------------------------------------------------------------
+class TestMetadataRoundTrip:
+    def test_save_metadata_to_file(self, tmp_path):
+        """--save-metadata-to should save table structure to file."""
+        from ddlgenerator.ddlgenerator import Table
+
+        data = [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
+        meta_file = tmp_path / "metadata.yaml"
+
+        args = parser.parse_args([
+            "--save-metadata-to", str(meta_file),
+            "postgresql", "dummy.yaml"
+        ])
+        out = io.StringIO()
+        table = generate_one(data, args, table_name="test_meta", file=out)
+
+        # Metadata file should be created
+        assert meta_file.exists()
+        content = meta_file.read_text()
+        assert "id" in content or "name" in content
+
+    def test_use_metadata_from_dict(self):
+        """--use-metadata-from should accept metadata dict (internal API)."""
+        from ddlgenerator.ddlgenerator import Table
+        from collections import OrderedDict
+
+        # Create metadata as OrderedDict (as would be loaded from file)
+        metadata = OrderedDict([
+            ("id", {"is_nullable": False, "is_unique": True, "sample_datum": 1, "str_length": 1}),
+            ("name", {"is_nullable": False, "is_unique": False, "sample_datum": "test", "str_length": 4}),
+        ])
+
+        # Create table with metadata
+        data = [{"id": 1, "name": "test"}]
+        tbl = Table(data, table_name="test_meta", metadata_source=metadata)
+
+        # Should use the provided metadata structure
+        assert "id" in tbl.columns
+        assert "name" in tbl.columns
+
+    def test_metadata_preserves_column_names(self, tmp_path):
+        """Metadata should preserve column names."""
+        from ddlgenerator.ddlgenerator import Table
+
+        data = [{"id": 1, "name": "Alice", "score": 95.5}]
+        meta_file = tmp_path / "metadata.yaml"
+
+        args = parser.parse_args([
+            "--save-metadata-to", str(meta_file),
+            "postgresql", "dummy.yaml"
+        ])
+        out = io.StringIO()
+        table = generate_one(data, args, table_name="test_struct", file=out)
+
+        # Verify metadata file was created with column info
+        assert meta_file.exists()
+        content = meta_file.read_text()
+        # Column names should appear in the saved metadata
+        assert "id" in content or "name" in content

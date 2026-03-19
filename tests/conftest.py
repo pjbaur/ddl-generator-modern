@@ -35,3 +35,12 @@ def table_class():
     except ImportError:
         from ddlgenerator import Table
         return Table
+
+
+@pytest.fixture(autouse=True)
+def reset_source_table_count():
+    """Reset Source.table_count before each test for deterministic table names."""
+    from ddlgenerator.sources import Source
+    Source.table_count = 0
+    yield
+    Source.table_count = 0
