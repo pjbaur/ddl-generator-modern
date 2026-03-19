@@ -10,9 +10,10 @@ Supported formats:
 - CSV files (.csv)
 - JSON files (.json)
 - YAML files (.yaml, .yml)
-- HTML tables (.html, .htm)
+- HTML tables (.html, .htm) - requires beautifulsoup4
 - Excel files (.xls) - requires xlrd
-- URLs (http/https) - with SSRF protection via url_utils
+- Excel files (.xlsx) - requires openpyxl
+- URLs (http/https) - requires requests, with SSRF protection via url_utils
 - SQLAlchemy MetaData
 - MongoDB collections - requires pymongo
 - Python iterators/generators
@@ -54,8 +55,14 @@ except ImportError:
 try:
     import xlrd
 except ImportError:
-    logging.info("Could not import xlrd; Excel support disabled")
+    logging.info("Could not import xlrd; Excel .xls support disabled")
     xlrd = None
+
+try:
+    import openpyxl
+except ImportError:
+    logging.info("Could not import openpyxl; Excel .xlsx support disabled")
+    openpyxl = None
 
 try:
     import bs4
@@ -428,7 +435,7 @@ class Source:
             self._deserialize(StringIO(content), _FALLBACK_DESERIALIZERS)
 
     def _source_is_excel_worksheet(self, sheet, name):
-        """Extract data from an Excel worksheet."""
+        """Extract data from an Excel worksheet (xlrd)."""
         headings = ["Col%d" % c for c in range(1, sheet.ncols + 1)]
         start_row = 0
         for row_n in range(sheet.nrows):
@@ -445,10 +452,67 @@ class Source:
         generator = NamedIter(iter(data), name="%s-%s" % (name, sheet.name))
         return generator
 
+    def _source_is_xlsx_worksheet(self, sheet, name):
+        """Extract data from an Excel .xlsx worksheet (openpyxl)."""
+        max_col = sheet.max_column
+        max_row = sheet.max_row
+        headings = ["Col%d" % c for c in range(1, max_col + 1)]
+        start_row = 1
+
+        for row_n in range(1, max_row + 1):
+            row_values = [cell.value for cell in sheet[row_n]]
+            row_has_data = any(bool(v) for v in row_values)
+            if row_has_data:
+                headings = [heading if heading else default_heading
+                            for (heading, default_heading)
+                            in itertools.zip_longest(row_values, headings)]
+                start_row = row_n + 1
+                break
+
+        data = []
+        for r in range(start_row, max_row + 1):
+            row_values = [cell.value for cell in sheet[r]]
+            data.append(OrderedDict(zip(headings, row_values)))
+        generator = NamedIter(iter(data), name="%s-%s" % (name, sheet.title))
+        return generator
+
     def _source_is_excel(self, spreadsheet, sheet='*'):
-        """Handle Excel file sources."""
+        """Handle Excel file sources (.xls via xlrd, .xlsx via openpyxl)."""
+        # Detect if this is an .xlsx file
+        is_xlsx = False
+        if isinstance(spreadsheet, bytes):
+            # Check for xlsx magic bytes (PK zip header, as xlsx is a zip file)
+            is_xlsx = spreadsheet[:4] == b'PK\x03\x04'
+        elif isinstance(spreadsheet, str):
+            is_xlsx = spreadsheet.lower().endswith('.xlsx')
+
+        if is_xlsx:
+            if not openpyxl:
+                raise ImportError('must pip install openpyxl for .xlsx support')
+            if isinstance(spreadsheet, bytes):
+                import io
+                workbook = openpyxl.load_workbook(io.BytesIO(spreadsheet), read_only=True)
+                name = "excel"
+            else:
+                workbook = openpyxl.load_workbook(spreadsheet, read_only=True)
+                name = spreadsheet
+
+            if sheet == '*':
+                generators = [self._source_is_xlsx_worksheet(s, name) for s in workbook.worksheets]
+                self._multiple_sources(generators)
+            else:
+                try:
+                    sheet_idx = int(sheet)
+                    sheet_obj = workbook.worksheets[sheet_idx]
+                except ValueError:
+                    sheet_obj = workbook[sheet]
+                self.generator = self._source_is_xlsx_worksheet(sheet_obj, name)
+                self.table_name = self.generator.name
+            return
+
+        # Fall back to xlrd for .xls files
         if not xlrd:
-            raise ImportError('must pip install xlrd for Excel support')
+            raise ImportError('must pip install xlrd for .xls support')
 
         if isinstance(spreadsheet, bytes):
             workbook = xlrd.open_workbook(file_contents=spreadsheet)
