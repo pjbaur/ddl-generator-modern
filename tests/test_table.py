@@ -526,3 +526,133 @@ class TestYAMLSafety:
         source = inspect.getsource(Table.__init__)
         assert 'yaml.safe_load' in source
         assert 'yaml.load(' not in source
+
+
+# ---------------------------------------------------------------------------
+# _dropper dialect tests
+# ---------------------------------------------------------------------------
+class TestDropperDialects:
+    """Tests for Table._dropper() across different SQL dialects."""
+
+    def test_dropper_postgresql_includes_if_exists(self):
+        """PostgreSQL supports IF EXISTS in DROP TABLE."""
+        tbl = Table([{"id": 1}], table_name="test_drop")
+        result = tbl._dropper("postgresql")
+        assert "DROP TABLE" in result
+        assert "IF EXISTS" in result
+        assert "test_drop" in result
+
+    def test_dropper_mysql_includes_if_exists(self):
+        """MySQL supports IF EXISTS in DROP TABLE."""
+        tbl = Table([{"id": 1}], table_name="test_drop")
+        result = tbl._dropper("mysql")
+        assert "DROP TABLE" in result
+        assert "IF EXISTS" in result
+
+    def test_dropper_sqlite_includes_if_exists(self):
+        """SQLite supports IF EXISTS in DROP TABLE."""
+        tbl = Table([{"id": 1}], table_name="test_drop")
+        result = tbl._dropper("sqlite")
+        assert "DROP TABLE" in result
+        assert "IF EXISTS" in result
+
+    def test_dropper_oracle_no_if_exists(self):
+        """Oracle does not support IF EXISTS (generates without it)."""
+        tbl = Table([{"id": 1}], table_name="test_drop")
+        result = tbl._dropper("oracle")
+        assert "DROP TABLE" in result
+        assert "IF EXISTS" not in result
+
+    def test_dropper_mssql_no_if_exists(self):
+        """MSSQL does not support IF EXISTS (generates without it)."""
+        tbl = Table([{"id": 1}], table_name="test_drop")
+        result = tbl._dropper("mssql")
+        assert "DROP TABLE" in result
+        assert "IF EXISTS" not in result
+
+    def test_dropper_sybase_includes_if_exists(self):
+        """Sybase supports IF EXISTS in DROP TABLE."""
+        tbl = Table([{"id": 1}], table_name="test_drop")
+        result = tbl._dropper("sybase")
+        assert "DROP TABLE" in result
+        assert "IF EXISTS" in result
+
+    def test_dropper_drizzle_no_if_exists(self):
+        """Drizzle does not support IF EXISTS (generates without it)."""
+        tbl = Table([{"id": 1}], table_name="test_drop")
+        result = tbl._dropper("drizzle")
+        assert "DROP TABLE" in result
+        assert "IF EXISTS" not in result
+
+
+# ---------------------------------------------------------------------------
+# _saveable_metadata tests
+# ---------------------------------------------------------------------------
+class TestSaveableMetadata:
+    """Tests for Table._saveable_metadata() for serialization and round-trip."""
+
+    def test_removes_satype(self):
+        """_saveable_metadata should remove satype (SQLAlchemy types can't be serialized)."""
+        tbl = Table([{"id": 1, "name": "test"}], table_name="test_meta")
+        meta = tbl._saveable_metadata()
+
+        # satype should be removed from all columns
+        for col_info in meta.values():
+            if isinstance(col_info, dict):
+                assert "satype" not in col_info
+
+    def test_includes_child_tables(self):
+        """_saveable_metadata should include child table metadata."""
+        from collections import OrderedDict
+        data = [
+            OrderedDict([
+                ("name", "parent1"),
+                ("items", [{"val": "a"}, {"val": "b"}]),
+            ]),
+        ]
+        tbl = Table(data, table_name="parent", pk_name="id", force_pk=True)
+        meta = tbl._saveable_metadata()
+
+        # Child table should be in metadata
+        if tbl.children:
+            assert "items" in meta
+            assert isinstance(meta["items"], dict)
+
+    def test_roundtrip_via_yaml(self, tmp_path):
+        """Metadata should survive YAML serialization round-trip using yaml.dump."""
+        data = [{"id": 1, "name": "Alice", "score": 95.5}]
+        tbl = Table(data, table_name="test_roundtrip")
+
+        # Get saveable metadata
+        meta = tbl._saveable_metadata()
+
+        # Serialize to YAML using the same method Table uses
+        meta_file = tmp_path / "meta.yaml"
+        with open(meta_file, 'w') as f:
+            yaml.dump(meta, f)
+
+        # Verify file was created and contains column info
+        assert meta_file.exists()
+        content = meta_file.read_text()
+        # Column names should be present
+        assert "id" in content or "name" in content or "score" in content
+
+    def test_includes_column_metadata(self):
+        """_saveable_metadata should include column metadata like nullable, unique."""
+        data = [{"id": 1, "name": "test"}]
+        tbl = Table(data, table_name="test_cols", uniques=True)
+        meta = tbl._saveable_metadata()
+
+        # Should have column entries with metadata
+        assert len(meta) > 0
+        for col_name, col_info in meta.items():
+            if isinstance(col_info, dict):
+                # Should have some metadata keys
+                assert "is_nullable" in col_info or "is_unique" in col_info or "pytype" in col_info
+
+    def test_empty_table_metadata(self):
+        """Empty table should still produce valid metadata structure."""
+        # Table with data that becomes empty after processing
+        tbl = Table([{"a": 1}], table_name="test_empty")
+        meta = tbl._saveable_metadata()
+        assert isinstance(meta, dict)

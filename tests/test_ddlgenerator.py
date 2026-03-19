@@ -206,3 +206,55 @@ class TestFiles:
                     tbl = Table(source_fname, uniques=True)
                     generated = tbl.sql('postgresql', inserts=True, drops=True).strip()
                     assert generated == expected
+
+
+# ---------------------------------------------------------------------------
+# sqla_inserter_call tests
+# ---------------------------------------------------------------------------
+class TestSqlaInserterCall:
+    """Tests for sqla_inserter_call function."""
+
+    def test_generates_function_definition(self):
+        """Should generate insert_test_rows function."""
+        from ddlgenerator.ddlgenerator import sqla_inserter_call
+
+        result = sqla_inserter_call(["users"])
+        assert "def insert_test_rows" in result
+        assert "meta" in result
+        assert "conn" in result
+
+    def test_includes_all_table_names(self):
+        """Should include all table names in the generated function."""
+        from ddlgenerator.ddlgenerator import sqla_inserter_call
+
+        table_names = ["users", "orders", "products"]
+        result = sqla_inserter_call(table_names)
+
+        for name in table_names:
+            assert f"insert_{name}" in result
+            assert f"meta.tables['{name}']" in result
+
+    def test_empty_list_generates_empty_function_body(self):
+        """Empty table list should generate function with no table insert calls."""
+        from ddlgenerator.ddlgenerator import sqla_inserter_call
+
+        result = sqla_inserter_call([])
+        assert "def insert_test_rows" in result
+        # Should have function definition but no insert_ calls for specific tables
+        # (The function name contains "insert_" but there should be no insert_tablename calls)
+        assert "meta.tables" not in result
+
+    def test_single_table_format(self):
+        """Single table should generate correct insert call."""
+        from ddlgenerator.ddlgenerator import sqla_inserter_call
+
+        result = sqla_inserter_call(["my_table"])
+        assert "insert_my_table(meta.tables['my_table'], conn)" in result
+
+    def test_docstring_included(self):
+        """Generated function should include docstring."""
+        from ddlgenerator.ddlgenerator import sqla_inserter_call
+
+        result = sqla_inserter_call(["users"])
+        assert '"""' in result
+        assert "test data" in result.lower() or "populate" in result.lower()
