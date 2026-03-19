@@ -261,9 +261,9 @@ class Table(object):
         # data_dispenser.sources.Source
         if isinstance(data, Source):
             self.data = data
-        elif hasattr(data, 'lower') or hasattr(data, 'read'):
+        elif isinstance(data, str) or hasattr(data, 'read'):
             # Validate URLs for SSRF prevention before passing to Source
-            if hasattr(data, 'lower') and url_utils.is_url(data):
+            if isinstance(data, str) and url_utils.is_url(data):
                 url_utils.validate_url(data)
             self.data = Source(data, limit=limit)
         else:
@@ -619,7 +619,7 @@ class Table(object):
                         col['sample_datum'], v)
                     if (v is None) or (not str(v).strip()):
                         col['is_nullable'] = True
-                    if (col['is_unique'] != False):
+                    if (col['is_unique'] is not False):
                         if v in col['is_unique']:
                             col['is_unique'] = False
                         else:
