@@ -14,7 +14,7 @@ from ddlgenerator.sources import sqlalchemy_table_sources
 
 parser = argparse.ArgumentParser(description='Generate DDL based on data')
 parser.add_argument('dialect', help='SQL dialect to output', type=str.lower)
-parser.add_argument('datafile', help='Path to file storing data (accepts .yaml, .json)', nargs='+')
+parser.add_argument('datafile', help='Path to file storing data (.yaml, .json, .csv, .xls, .xlsx, .html, URL, or SQLAlchemy URL)', nargs='+')
 parser.add_argument('-k', '--key', help='If primary key needed, name it this', type=str.lower)
 parser.add_argument('--force-key', help='Force every table to have a primary key',
                     action='store_true')

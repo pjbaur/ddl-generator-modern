@@ -55,11 +55,14 @@ Requirements
 Supported data formats
 ----------------------
 
-- Pure Python
+- Pure Python (lists, dicts, generators)
 - YAML
 - JSON
 - CSV
-- HTML
+- HTML (tables from web pages)
+- Excel (``.xls`` and ``.xlsx``)
+- MongoDB (queries)
+- URLs (fetch remote data)
 
 Features
 --------
@@ -72,6 +75,8 @@ Features
 - with ``-u``/``--uniques`` flag, surmises UNIQUE constraints from data
 - Handles nested data, creating child tables as needed
 - Reads HTML tables, including those embedded in noisy websites
+- Fetches data from URLs with SSRF protection
+- Supports Excel files (both ``.xls`` and ``.xlsx`` formats)
 
 Options
 -------
@@ -97,6 +102,11 @@ Options
                             Use metadata saved in FROM for table definition, do
                             not re-analyze table structure
       -l LOG, --log LOG     log level (CRITICAL, FATAL, ERROR, DEBUG, INFO, WARN)
+
+Positional arguments::
+
+      dialect               SQL dialect (postgresql, mysql, sqlite, oracle, mssql, sqlalchemy, django)
+      datafile              Path to file (.yaml, .json, .csv, .xls, .xlsx, .html, URL, or SQLAlchemy URL)
 
 Generate SQLAlchemy models
 --------------------------
@@ -162,6 +172,13 @@ Requires Python 3.10 or higher.
 From PyPI::
 
     pip install ddl-generator
+
+With optional extras::
+
+    pip install ddl-generator[html]    # HTML table and URL support
+    pip install ddl-generator[excel]   # Excel (.xls, .xlsx) support
+    pip install ddl-generator[mongo]   # MongoDB support
+    pip install ddl-generator[html,excel,mongo]  # All extras
 
 From source::
 
