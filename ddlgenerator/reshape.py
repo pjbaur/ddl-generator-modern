@@ -87,7 +87,7 @@ class UniqueKey(object):
     """
     Provides unique IDs.
 
-    >>> idp1 = UniqueKey('id', int, max=4)
+    >>> idp1 = UniqueKey('id', int, start=4)
     >>> idp1.next()
     5
     >>> idp1.next()
@@ -97,17 +97,17 @@ class UniqueKey(object):
     >>> (len(id2), type(id2))
     (32, <class 'str'>)
     """
-    def __init__(self, key_name, key_type, max=0):
+    def __init__(self, key_name, key_type, start=0):
         self.name = key_name
         if key_type != int and not hasattr(key_type, 'lower'):
             raise NotImplementedError("Primary key field %s is %s, must be string or integer"
                                       % (key_name, key_type))
         self.type = key_type
-        self.max = max
+        self._counter = start
     def next(self):
         if self.type == int:
-            self.max += 1
-            return self.max
+            self._counter += 1
+            return self._counter
         else:
             return md5().hexdigest()
 

@@ -9,7 +9,6 @@ except ImportError:
     from ddlgenerator import Table, dialect_names, sqla_head
     from ddlgenerator import sqla_head, sqla_inserter_call
     from ddlgenerator import emit_db_sequence_updates
-# If anyone can explain these import differences to me, I will buy you a cookie.
 from ddlgenerator.sources import sqlalchemy_table_sources
 
 

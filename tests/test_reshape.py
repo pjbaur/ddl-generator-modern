@@ -101,7 +101,7 @@ class TestIdFieldname:
 # ---------------------------------------------------------------------------
 class TestUniqueKey:
     def test_int_key_increments(self):
-        uk = UniqueKey("id", int, max=4)
+        uk = UniqueKey("id", int, start=4)
         assert uk.next() == 5
         assert uk.next() == 6
 
