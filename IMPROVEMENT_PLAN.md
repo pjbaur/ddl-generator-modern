@@ -51,26 +51,26 @@ Audit performed 2026-03-18. Project is stable (219/220 tests pass, clean working
 
 ## Low-Medium Priority
 
-### [ ] 9. Packaging cleanup
+### [x] 9. Packaging cleanup
 - `setup.py` shim is unnecessary — modern pip (21.3+) handles `pyproject.toml` editable installs.
 - `requirements.txt` / `requirements-dev.txt` duplicate `pyproject.toml` and are out of sync (e.g., tox version bounds differ).
 - CI (`ci.yml:5`) triggers on dead `modernize` branch.
 
-### [ ] 10. Documentation gaps
+### [x] 10. Documentation gaps
 - `docs/usage.rst` is an empty stub (just `import ddlgenerator`).
 - `HISTORY.rst:63` still references removed `data_dispenser` dependency.
 - `README.rst:33` example output is stale/inaccurate (column name casing mismatch).
 - Many public functions lack docstrings: `_dump()`, `KeyAlreadyExists`, `Table._find_table_name()`, `Table._dropper()`, `Table._fill_metadata_from_sample()`, `Table._determine_types()`, `Table.__str__()`, `is_scalar()`, `_places_b4_and_after_decimal()`, `all_values_for()`, etc.
 - `console.py:74` — typo "Genereate DDL" (should be "Generate").
 
-### [ ] 11. Style / code smell
+### [x] 11. Style / code smell
 - `reshape.py:100` — `max` parameter name shadows the builtin.
 - `ddlgenerator.py:603` — `!= False` instead of `is not False`.
 - `ddlgenerator.py:245` — `hasattr(data, 'lower')` as string check (Python 2 idiom, should be `isinstance(data, str)`).
 - `ddlgenerator.py:394-405` — `sqlalchemy()` method uses fragile string `.replace()` heuristics on SQLAlchemy `__repr__` output.
 - `console.py:12` — joke comment left in production code.
 
-### [ ] 12. Dependency improvements
+### [x] 12. Dependency improvements
 - `xlrd` only supports `.xls` — consider adding `openpyxl` for `.xlsx` support.
 - `beautifulsoup4` and `requests` are hard dependencies but only needed for HTML/URL features — could be made optional extras.
 - `pyyaml>=6.0,<7.0` upper bound may cause future pip resolution failures.
