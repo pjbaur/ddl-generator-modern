@@ -30,7 +30,7 @@ Use at command line::
         species VARCHAR(8) NOT NULL
     )
     ;
-    INSERT INTO generated_table (kg, Name, species) VALUES (22, 'Alfred', 'wart hog');
+    INSERT INTO generated_table (kg, name, species) VALUES (22, 'Alfred', 'wart hog');
 
 Reads data from files::
 

@@ -71,7 +71,7 @@ def generate_one(tbl, args, table_name=None, file=None):
 
 def generate(args=None, namespace=None, file=None):
     """
-    Genereate DDL from data sources named.
+    Generate DDL from data sources named.
 
     :args:      String or list of strings to be parsed for arguments
     :namespace: Namespace to extract arguments from

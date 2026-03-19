@@ -60,7 +60,6 @@ Dependencies
 * ``python-dateutil>=2.8,<3.0``
 * ``beautifulsoup4>=4.12,<5.0``
 * ``requests>=2.28,<3.0``
-* ``data_dispenser>=0.2.5.1``
 * ``pymongo>=4.0,<5.0`` (optional, via ``pip install ddl-generator[mongo]``)
 
 Acknowledgments
