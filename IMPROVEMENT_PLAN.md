@@ -22,7 +22,7 @@ Audit performed 2026-03-18. Project is stable (219/220 tests pass, clean working
 
 ## Medium Priority
 
-### [ ] 5. Test coverage gaps
+### [x] 5. Test coverage gaps
 - `sources.py` has no dedicated test file — ~15 functions/methods are untested:
   - `_ensure_rows()`, `_ordered_yaml_load()`, `_json_loader()`, `_interpret_fieldnames()`, `_table_score()`, `_html_to_odicts()`, `NamedIter`, `filename_from_url()`, `Source._source_is_generator()`, `Source._source_is_mongo()`, `Source._source_is_sqlalchemy_metadata()`, `Source._deserialize()`, `Source._source_is_url()`, `Source._source_is_excel()`, `Source._multiple_sources()`, `sqlalchemy_table_sources()`
 - `console.py` CLI paths (SQLAlchemy URL input, metadata round-trip) are untested.
