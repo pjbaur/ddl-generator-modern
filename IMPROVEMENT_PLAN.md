@@ -75,7 +75,7 @@ Audit performed 2026-03-18. Project is stable (219/220 tests pass, clean working
 - `beautifulsoup4` and `requests` are hard dependencies but only needed for HTML/URL features — could be made optional extras.
 - `pyyaml>=6.0,<7.0` upper bound may cause future pip resolution failures.
 
-### [ ] 13. CI / tooling
+### [x] 13. CI / tooling
 - `tox.ini` `[testenv:typecheck]` has `ignore_outcome = true` — mypy results are always green.
 - CI lint job installs `ruff flake8` directly instead of using project-pinned versions.
 - `Makefile` `make docs` uses `open` (macOS-specific), breaks on Linux.
