@@ -29,6 +29,18 @@ def is_scalar(x: Any) -> bool:
     return hasattr(x, 'lower') or not hasattr(x, '__iter__')
 
 
+def _finite_exponent(d: Decimal) -> int:
+    """Exponent of a finite Decimal.
+
+    ``as_tuple().exponent`` is an ``int`` only for finite values; NaN and
+    Infinity report ``'n'``, ``'N'`` and ``'F'`` instead.
+    """
+    exponent = d.as_tuple().exponent
+    if not isinstance(exponent, int):
+        raise TypeError(f"cannot determine precision and scale of {d}")
+    return exponent
+
+
 def precision_and_scale(x: float | Decimal) -> tuple[int, int]:
     """
     From a float, decide what precision and scale are needed to represent it.
@@ -43,7 +55,7 @@ def precision_and_scale(x: float | Decimal) -> tuple[int, int]:
     """
     if isinstance(x, Decimal):
         precision = len(x.as_tuple().digits)
-        scale = -1 * x.as_tuple().exponent
+        scale = -1 * _finite_exponent(x)
         if scale < 0:
             precision -= scale
             scale = 0
@@ -134,7 +146,8 @@ def _places_b4_and_after_decimal(d: Decimal) -> tuple[int, int]:
     (2, 3)
     """
     tup = d.as_tuple()
-    return (len(tup.digits) + tup.exponent, max(-1 * tup.exponent, 0))
+    exponent = _finite_exponent(d)
+    return (len(tup.digits) + exponent, max(-1 * exponent, 0))
 
 
 def worst_decimal(d1: Decimal, d2: Decimal) -> Decimal:
@@ -209,7 +222,7 @@ def best_representative(d1: CoercedValue, d2: CoercedValue) -> Any:
     Decimal('-9.9')
     """
 
-    if hasattr(d2, 'strip') and not d2.strip():
+    if isinstance(d2, str) and not d2.strip():
         return d1
     if d1 is None:
         return d2
@@ -217,7 +230,7 @@ def best_representative(d1: CoercedValue, d2: CoercedValue) -> Any:
         return d1
     preference = (datetime.datetime, bool, int, Decimal, float, str)
     worst_pref = 0
-    worst = ''
+    worst: Any = ''
     for coerced in (d1, d2):
         pref = preference.index(type(coerced))
         if pref > worst_pref:
@@ -251,7 +264,7 @@ def best_coercable(data: Iterable[Any]) -> Any:
     """
     preference = (datetime.datetime, bool, int, Decimal, float, str)
     worst_pref = 0
-    worst = ''
+    worst: Any = ''
     for datum in data:
         coerced = coerce_to_specific(datum)
         pref = preference.index(type(coerced))

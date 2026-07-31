@@ -44,18 +44,22 @@ import re
 import secrets
 import textwrap
 from collections import OrderedDict
+from collections.abc import Iterable, Iterator
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import dateutil.parser
 import sqlalchemy as sa
 import yaml
 from sqlalchemy.schema import CreateTable
 
-try:
-    import pymongo
-except ImportError:
-    pymongo = None
+if TYPE_CHECKING:
+    pymongo: Any = None
+else:
+    try:
+        import pymongo
+    except ImportError:
+        pymongo = None
 import ddlgenerator.typehelpers as th
 from ddlgenerator import reshape, url_utils
 from ddlgenerator.sources import Source
@@ -75,7 +79,7 @@ class UnsafeInputError(ValueError):
     pass
 
 
-def _validate_data_source(data):
+def _validate_data_source(data: Any) -> None:
     """
     Validate data source to prevent arbitrary code execution.
 
@@ -116,7 +120,7 @@ dialect_names = '''drizzle firebird mssql mysql oracle postgresql
                    sqlite sybase sqlalchemy django'''.split()
 
 
-def _dump(sql, *multiparams, **params):
+def _dump(sql: Any, *multiparams: Any, **params: Any) -> None:
     pass
 
 
@@ -127,10 +131,10 @@ for engine_name in ('postgresql', 'sqlite', 'mysql', 'oracle', 'mssql'):
 
 
 # Cache for literal processors per dialect to avoid repeated creation
-_literal_processor_cache = {}
+_literal_processor_cache: dict[str, Any] = {}
 
 
-def _get_literal_processor(dialect_name):
+def _get_literal_processor(dialect_name: str) -> Any:
     """
     Get a SQLAlchemy literal processor for safe string escaping.
 
@@ -158,7 +162,7 @@ def _get_literal_processor(dialect_name):
     return _literal_processor_cache[dialect_name]
 
 
-def _escape_string_value(value, dialect_name):
+def _escape_string_value(value: str, dialect_name: str) -> str:
     """
     Safely escape a string value for use in SQL statements.
 
@@ -173,7 +177,7 @@ def _escape_string_value(value, dialect_name):
         The safely escaped string ready for SQL literal use
     """
     processor = _get_literal_processor(dialect_name)
-    return processor(value)
+    return str(processor(value))
 
 
 class Table:
@@ -197,6 +201,10 @@ class Table:
     """
 
     table_index: int = 0
+
+    table_name: str
+    metadata: sa.MetaData
+    comments: dict[str, str]
 
     def _find_table_name(self, data: Any) -> None:
         if not self.table_name:
@@ -245,7 +253,7 @@ class Table:
         self.source = data
         logging.getLogger().setLevel(loglevel)
         self.varying_length_text = varying_length_text
-        self.table_name = table_name
+        self.table_name = table_name or ''
         self.data_size_cushion = data_size_cushion
         self._find_table_name(data)
         if _parent_table is not None:
@@ -275,7 +283,7 @@ class Table:
         self.table_name = self.table_name.lower()
 
         if hasattr(self.data, 'generator') and hasattr(self.data.generator, 'sqla_columns'):
-            children = {}
+            children: dict[str, Any] = {}
             self.pk_name = next(col.name for col in self.data.generator.sqla_columns if col.primary_key)
         else:
             self.data = reshape.walk_and_clean(self.data)
@@ -320,8 +328,8 @@ class Table:
 
         self.table = sa.Table(self.table_name, self.metadata,
                               *[sa.Column(cname, col['satype'],
-                                          (fk if fk and (_fk_field_name == cname)
-                                           else None),
+                                          *([fk] if fk and (_fk_field_name == cname)
+                                            else []),
                                           primary_key=(cname == self.pk_name),
                                           unique=(uniques and col['is_unique']),
                                           nullable=col['is_nullable'],
@@ -347,7 +355,7 @@ class Table:
                 outfile.write(yaml.dump(self._saveable_metadata()))
             logger.info(f'Pass ``--save-metadata-to {save_metadata_to}`` next time to re-use structure')
 
-    def _saveable_metadata(self):
+    def _saveable_metadata(self) -> OrderedDict:
         result = copy.copy(self.columns)
         for v in result.values():
             v.pop('satype')  # yaml chokes on sqla classes
@@ -355,7 +363,7 @@ class Table:
             result[child_name] = child._saveable_metadata()
         return result
 
-    def _dialect(self, dialect):
+    def _dialect(self, dialect: str | None) -> str:
         if not dialect and not self.default_dialect:
             raise KeyError("No SQL dialect specified")
         dialect = dialect or self.default_dialect
@@ -367,20 +375,20 @@ class Table:
     _supports_if_exists['postgresql'] = _supports_if_exists['sqlite'] = True
     _supports_if_exists['mysql'] = _supports_if_exists['sybase'] = True
 
-    def _dropper(self, dialect):
+    def _dropper(self, dialect: str) -> str:
         template = "DROP TABLE %s %s"
         if_exists = "IF EXISTS" if self._supports_if_exists[dialect] else ""
         return template % (if_exists, self.table_name)
 
     _comment_wrapper = textwrap.TextWrapper(initial_indent='-- ', subsequent_indent='-- ')
 
-    def ddl(self, dialect=None, creates=True, drops=True):
+    def ddl(self, dialect: str | None = None, creates: bool = True, drops: bool = True) -> str:
         """
         Returns SQL to define the table.
         """
         dialect = self._dialect(dialect)
-        creator = CreateTable(self.table).compile(mock_engines[dialect])
-        creator = "\n".join(line for line in str(creator).splitlines() if line.strip())  # remove empty lines
+        compiled = CreateTable(self.table).compile(mock_engines[dialect])
+        creator = "\n".join(line for line in str(compiled).splitlines() if line.strip())  # remove empty lines
         comments = "\n\n".join(self._comment_wrapper.fill(f"in {col}: {self.comments[col]}")
                                for col in self.comments)
         result = []
@@ -402,7 +410,7 @@ class Table:
 
         metadata.create_all(engine)""")
 
-    def sqlalchemy(self, is_top=True):
+    def sqlalchemy(self, is_top: bool = True) -> str:
         """Dumps Python code to set up the table's  SQLAlchemy model"""
         table_def = self.table_backref_remover.sub('', self.table.__repr__())
 
@@ -414,25 +422,24 @@ class Table:
                                      for c in constraint.columns)
                 constraint_defs.append(f'UniqueConstraint({col_list})')
         if constraint_defs:
-            constraint_defs = ',\n  '.join(constraint_defs) + ','
-            table_def = table_def.replace('schema=None', '\n  ' + constraint_defs + 'schema=None')
+            constraint_block = ',\n  '.join(constraint_defs) + ','
+            table_def = table_def.replace('schema=None', '\n  ' + constraint_block + 'schema=None')
 
         table_def = table_def.replace("MetaData()", "metadata")
         table_def = table_def.replace("Column(", "\n  Column(")
         table_def = table_def.replace("schema=", "\n  schema=")
-        result = [table_def, ]
-        result.extend(c.sqlalchemy(is_top=False) for c in self.children.values())
-        result = "\n{} = {}".format(self.table_name, "\n".join(result))
+        parts = [table_def, ]
+        parts.extend(c.sqlalchemy(is_top=False) for c in self.children.values())
+        result = "\n{} = {}".format(self.table_name, "\n".join(parts))
         if is_top:
-            sqla_imports = set(self.capitalized_words.findall(table_def))
-            sqla_imports &= set(dir(sa))
-            sqla_imports = sorted(sqla_imports)
+            found_imports = set(self.capitalized_words.findall(table_def))
+            found_imports &= set(dir(sa))
             result = self.sqlalchemy_setup_template % (
-                ", ".join(sqla_imports), result)
+                ", ".join(sorted(found_imports)), result)
             result = textwrap.dedent(result)
         return result
 
-    def django_models(self, metadata_source=None):
+    def django_models(self, metadata_source: str | None = None) -> None:
         sql = self.sql(dialect='postgresql', inserts=False, creates=True,
                        drops=True, metadata_source=metadata_source)
         u = sql.split(';\n')
@@ -475,7 +482,7 @@ class Table:
                 if os.path.exists(db_filename):
                     os.remove(db_filename)
 
-    def _prep_datum(self, datum, dialect, col, needs_conversion):
+    def _prep_datum(self, datum: Any, dialect: str, col: str, needs_conversion: bool) -> str:
         """Puts a value in proper format for a SQL string using safe escaping."""
         if datum is None or (needs_conversion and not str(datum).strip()):
             return 'NULL'
@@ -498,11 +505,11 @@ class Table:
             # Use SQLAlchemy's safe literal processor for string escaping
             return _escape_string_value(datum, dialect)
         else:
-            return datum
+            return str(datum)
 
     _insert_template = "INSERT INTO {table_name} ({cols}) VALUES ({vals});"
 
-    def inserts(self, dialect=None):
+    def inserts(self, dialect: str | None = None) -> Iterator[str]:
         if dialect and dialect.startswith("sqla"):
             if self.data:
                 yield f"\ndef insert_{self.table_name}(tbl, conn):"
@@ -527,8 +534,8 @@ class Table:
                 for row in child.inserts(dialect):
                     yield row
 
-    def sql(self, dialect=None, inserts=False, creates=True,
-            drops=True, metadata_source=None):
+    def sql(self, dialect: str | None = None, inserts: bool = False, creates: bool = True,
+            drops: bool = True, metadata_source: str | OrderedDict | None = None) -> str:
         """
         Combined results of ``.ddl(dialect)`` and, if ``inserts==True``,
         ``.inserts(dialect)``.
@@ -539,13 +546,13 @@ class Table:
                 result.append(row)
         return '\n'.join(result)
 
-    def __str__(self):
+    def __str__(self) -> str:
         if self.default_dialect:
             return self.ddl()
         else:
             return self.__repr__()
 
-    def _fill_metadata_from_sample(self, col):
+    def _fill_metadata_from_sample(self, col: dict[str, Any]) -> dict[str, Any]:
         col['pytype'] = type(col['sample_datum'])
         if isinstance(col['sample_datum'], Decimal):
             (precision, scale) = th.precision_and_scale(col['sample_datum'])
@@ -569,7 +576,7 @@ class Table:
                 float: sa.Numeric, bool: sa.Boolean,
                 type(None): sa.Text}
 
-    def _determine_types(self):
+    def _determine_types(self) -> None:
         self.columns = OrderedDict()
         if hasattr(self.data, 'generator') and hasattr(self.data.generator, 'sqla_columns'):
             for col in self.data.generator.sqla_columns:
@@ -591,8 +598,7 @@ class Table:
             for k in keys:
                 v_raw = row[k]
                 if not th.is_scalar(v_raw):
-                    v = str(v_raw)
-                    self.comments[k] = f'nested values! example:\n{pprint.pformat(v)}'
+                    self.comments[k] = f'nested values! example:\n{pprint.pformat(str(v_raw))}'
                     logger.warning(f'in {k}: {self.comments[k]}')
                 v = th.coerce_to_specific(v_raw)
                 if k not in self.columns:
@@ -629,7 +635,7 @@ metadata = MetaData()
 conn = engine.connect()"""
 
 
-def sqla_inserter_call(table_names):
+def sqla_inserter_call(table_names: Iterable[str]) -> str:
     """Generate Python code string that defines an insert_test_rows function.
 
     Returns a string containing a function definition (not a callable function).
@@ -638,7 +644,7 @@ def sqla_inserter_call(table_names):
     """
     return '''
 
-def insert_test_rows(meta, conn):
+def insert_test_rows(meta: Any, conn: Any) -> None:
     """Calls insert_* functions to create test data.
 
     Given a SQLAlchemy metadata object ``meta`` and
@@ -652,7 +658,7 @@ def insert_test_rows(meta, conn):
                      for t in table_names))
 
 
-def emit_db_sequence_updates(engine):
+def emit_db_sequence_updates(engine: Any) -> Iterator[str]:
     """Set database sequence objects to match the source db
 
        Relevant only when generated from SQLAlchemy connection.

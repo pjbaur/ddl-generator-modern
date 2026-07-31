@@ -1,6 +1,7 @@
 import argparse
 import logging
 import re
+from typing import IO, Any
 
 from ddlgenerator.ddlgenerator import (
     Table,
@@ -37,7 +38,7 @@ parser.add_argument('-l', '--log', type=str.upper,
                     help='log level (CRITICAL, FATAL, ERROR, DEBUG, INFO, WARN)', default='WARN')
 
 
-def set_logging(args):
+def set_logging(args: argparse.Namespace) -> None:
     try:
         loglevel = int(getattr(logging, args.log))
     except (AttributeError, TypeError) as err:
@@ -50,7 +51,8 @@ def set_logging(args):
 is_sqlalchemy_url = re.compile("^{}".format("|".join(dialect_names)))
 
 
-def generate_one(tbl, args, table_name=None, file=None):
+def generate_one(tbl: Any, args: argparse.Namespace,
+                 table_name: str | None = None, file: IO[str] | None = None) -> Table:
     """
     Prints code (SQL, SQLAlchemy, etc.) to define a table.
     """
@@ -72,7 +74,9 @@ def generate_one(tbl, args, table_name=None, file=None):
     return table
 
 
-def generate(args=None, namespace=None, file=None):
+def generate(args: str | list[str] | None = None,
+             namespace: argparse.Namespace | None = None,
+             file: IO[str] | None = None) -> None:
     """
     Generate DDL from data sources named.
 
@@ -80,37 +84,37 @@ def generate(args=None, namespace=None, file=None):
     :namespace: Namespace to extract arguments from
     :file:      Write to this open file object (default stdout)
     """
-    if hasattr(args, 'split'):
+    if isinstance(args, str):
         args = args.split()
-    args = parser.parse_args(args, namespace)
-    set_logging(args)
-    logging.info(str(args))
-    if args.dialect in ('pg', 'pgsql', 'postgres'):
-        args.dialect = 'postgresql'
-    if args.dialect.startswith('dj'):
-        args.dialect = 'django'
-    elif args.dialect.startswith('sqla'):
-        args.dialect = 'sqlalchemy'
+    parsed = parser.parse_args(args, namespace)
+    set_logging(parsed)
+    logging.info(str(parsed))
+    if parsed.dialect in ('pg', 'pgsql', 'postgres'):
+        parsed.dialect = 'postgresql'
+    if parsed.dialect.startswith('dj'):
+        parsed.dialect = 'django'
+    elif parsed.dialect.startswith('sqla'):
+        parsed.dialect = 'sqlalchemy'
 
-    if args.dialect not in dialect_names:
+    if parsed.dialect not in dialect_names:
         raise NotImplementedError('First arg must be one of: {}'.format(", ".join(dialect_names)))
-    if args.dialect == 'sqlalchemy':
+    if parsed.dialect == 'sqlalchemy':
         print(sqla_head, file=file)
-    for datafile in args.datafile:
+    for datafile in parsed.datafile:
         if is_sqlalchemy_url.search(datafile):
             table_names_for_insert = []
             t = None
             for tbl in sqlalchemy_table_sources(datafile):
-                t = generate_one(tbl, args, table_name=tbl.generator.name, file=file)
+                t = generate_one(tbl, parsed, table_name=tbl.generator.name, file=file)
                 if t.data:
                     table_names_for_insert.append(tbl.generator.name)
-            if args.inserts and args.dialect == 'sqlalchemy':
+            if parsed.inserts and parsed.dialect == 'sqlalchemy':
                 print(sqla_inserter_call(table_names_for_insert), file=file)
-            if t is not None and args.inserts:
+            if t is not None and parsed.inserts:
                 for seq_update in emit_db_sequence_updates(t.source.db_engine):
-                    if args.dialect == 'sqlalchemy':
+                    if parsed.dialect == 'sqlalchemy':
                         print(f'    conn.execute("{seq_update}")', file=file)
-                    elif args.dialect == 'postgresql':
+                    elif parsed.dialect == 'postgresql':
                         print(seq_update, file=file)
         else:
-            generate_one(datafile, args, file=file)
+            generate_one(datafile, parsed, file=file)

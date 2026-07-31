@@ -31,25 +31,31 @@ import logging
 import os.path
 import urllib.parse
 from collections import OrderedDict
+from collections.abc import Iterable, Iterator
 from io import StringIO
+from types import TracebackType
+from typing import IO, TYPE_CHECKING, Any, Literal
 
 try:
     import yaml
 except ImportError:
     logging.info("Could not import pyyaml; YAML support disabled")
-    yaml = None
+    yaml = None  # type: ignore[assignment]
 
 try:
     import sqlalchemy
 except ImportError:
     logging.info("Could not import sqlalchemy; database support disabled")
-    sqlalchemy = None
+    sqlalchemy = None  # type: ignore[assignment]
 
-try:
-    from pymongo.collection import Collection as MongoCollection
-except ImportError:
-    logging.info("Could not import pymongo; MongoDB support disabled")
-    MongoCollection = None.__class__
+if TYPE_CHECKING:
+    MongoCollection: Any = None
+else:
+    try:
+        from pymongo.collection import Collection as MongoCollection
+    except ImportError:
+        logging.info("Could not import pymongo; MongoDB support disabled")
+        MongoCollection = None
 
 try:
     import xlrd
@@ -67,7 +73,7 @@ try:
     import bs4
 except ImportError:
     logging.info("Could not import beautifulsoup4; HTML support disabled")
-    bs4 = None
+    bs4 = None  # type: ignore[assignment]
 
 from ddlgenerator import url_utils
 
@@ -77,7 +83,7 @@ class ParseException(Exception):
     pass
 
 
-def _ensure_rows(result):
+def _ensure_rows(result: Any) -> Any:
     """
     Transform data into row-like format.
 
@@ -102,7 +108,7 @@ def _ensure_rows(result):
     return result
 
 
-def _ordered_yaml_load(stream, **kwargs):
+def _ordered_yaml_load(stream: IO[str], **kwargs: Any) -> Iterator[OrderedDict]:
     """
     Load YAML preserving order with OrderedDict.
     Uses safe_load to prevent arbitrary code execution.
@@ -114,7 +120,7 @@ def _ordered_yaml_load(stream, **kwargs):
     class OrderedLoader(yaml.SafeLoader):
         pass
 
-    def construct_mapping(loader, node):
+    def construct_mapping(loader: Any, node: Any) -> OrderedDict:
         return OrderedDict(loader.construct_pairs(node))
 
     OrderedLoader.add_constructor(
@@ -127,14 +133,14 @@ def _ordered_yaml_load(stream, **kwargs):
     return iter(result)
 
 
-def _json_loader(target, **kwargs):
+def _json_loader(target: IO[str], **kwargs: Any) -> Iterator[OrderedDict]:
     """Load JSON file returning iterator of OrderedDicts."""
     result = json.load(target, object_pairs_hook=OrderedDict)
     result = _ensure_rows(result)
     return iter(result)
 
 
-def _interpret_fieldnames(target, fieldnames):
+def _interpret_fieldnames(target: IO[str], fieldnames: Any) -> Any:
     """Interpret fieldnames parameter for CSV loading."""
     try:
         fieldname_line_number = int(fieldnames)
@@ -150,15 +156,15 @@ def _interpret_fieldnames(target, fieldnames):
     return fieldnames
 
 
-def _eval_csv(target, fieldnames=None, **kwargs):
+def _eval_csv(target: IO[str], fieldnames: Any = None, **kwargs: Any) -> Iterator[OrderedDict]:
     """Yield OrderedDicts from a CSV file."""
     fieldnames = _interpret_fieldnames(target, fieldnames)
     reader = csv.DictReader(target, fieldnames=fieldnames)
     for row in reader:
-        yield OrderedDict((k, row[k]) for k in reader.fieldnames)
+        yield OrderedDict((k, row[k]) for k in (reader.fieldnames or ()))
 
 
-def _table_score(tbl):
+def _table_score(tbl: Any) -> int:
     """Score an HTML table by how likely it contains useful data."""
     n_rows = len((tbl.tbody or tbl).find_all('tr', recursive=False))
     n_headings = len((tbl.thead or tbl).tr.find_all('th', recursive=False))
@@ -169,7 +175,7 @@ def _table_score(tbl):
     return score
 
 
-def _html_to_odicts(html, **kwargs):
+def _html_to_odicts(html: Any, **kwargs: Any) -> Iterator[OrderedDict]:
     """Parse HTML and extract table data as OrderedDicts."""
     if not bs4:
         raise ImportError("BeautifulSoup4 not installed")
@@ -179,10 +185,12 @@ def _html_to_odicts(html, **kwargs):
         raise ParseException('No HTML tables found')
     tbl = tables[0]
     skips = 1
-    if (tbl.thead or tbl).tr.th:
-        headers = [th.text for th in (tbl.thead or tbl).tr.find_all('th', recursive=False)]
+    head: Any = tbl.thead or tbl
+    body: Any = tbl.tbody or tbl
+    if head.tr.th:
+        headers = [th.text for th in head.tr.find_all('th', recursive=False)]
     else:
-        headers = [td.text for td in (tbl.tbody or tbl).tr.find_all('td', recursive=False)]
+        headers = [td.text for td in body.tr.find_all('td', recursive=False)]
     for col_num, header in enumerate(headers):
         if not header:
             headers[col_num] = f"Field{col_num + 1}"
@@ -197,24 +205,24 @@ def _html_to_odicts(html, **kwargs):
 class NamedIter:
     """Wrapper to attach a name attribute to an iterator."""
 
-    def __init__(self, unnamed_iterator, name=None):
+    def __init__(self, unnamed_iterator: Iterable, name: str | None = None) -> None:
         self._iterator = iter(unnamed_iterator)
         self.name = name
 
-    def __iter__(self):
+    def __iter__(self) -> 'NamedIter':
         return self
 
-    def __next__(self):
+    def __next__(self) -> Any:
         return next(self._iterator)
 
 
-def filename_from_url(url):
+def filename_from_url(url: str) -> str:
     """Extract filename from URL path."""
     return os.path.splitext(os.path.basename(urllib.parse.urlsplit(url).path))[0]
 
 
 # Deserializers by file extension
-_DESERIALIZERS = {
+_DESERIALIZERS: dict[str, list[Any]] = {
     '.json': [_json_loader],
     '.yaml': [_ordered_yaml_load],
     '.yml': [_ordered_yaml_load],
@@ -224,7 +232,7 @@ _DESERIALIZERS = {
 }
 
 # Fallback deserializers to try when extension is unknown
-_FALLBACK_DESERIALIZERS = [
+_FALLBACK_DESERIALIZERS: list[Any] = [
     _json_loader,
     _ordered_yaml_load,
     _eval_csv,
@@ -260,7 +268,12 @@ class Source:
 
     table_count = 0
 
-    def __init__(self, src, limit=None, fieldnames=None, table='*'):
+    generator: Any
+    file: IO[str] | None
+    db_engine: Any
+
+    def __init__(self, src: Any, limit: int | None = None,
+                 fieldnames: Any = None, table: str = '*') -> None:
         """
         Initialize a data source.
 
@@ -286,7 +299,7 @@ class Source:
             return
 
         # MongoDB Collection
-        if isinstance(src, MongoCollection):
+        if MongoCollection is not None and isinstance(src, MongoCollection):
             self._source_is_mongo(src)
             return
 
@@ -337,18 +350,18 @@ class Source:
 
         raise NotImplementedError(f'Could not read data source {str(src)} of type {str(type(src))}')
 
-    def _source_is_generator(self, src):
+    def _source_is_generator(self, src: Any) -> None:
         """Handle iterator/generator sources."""
         if hasattr(src, 'name'):
             self.table_name = src.name
         self.generator = src
 
-    def _source_is_mongo(self, src):
+    def _source_is_mongo(self, src: Any) -> None:
         """Handle MongoDB collection sources."""
         self.table_name = src.name
         self.generator = src.find()
 
-    def _source_is_sqlalchemy_metadata(self, meta, table):
+    def _source_is_sqlalchemy_metadata(self, meta: Any, table: str) -> None:
         """Handle SQLAlchemy MetaData sources using SA 2.x API."""
         self.db_engine = meta.bind
         connection = meta.bind.connect()
@@ -357,7 +370,7 @@ class Source:
         self.generator = NamedIter(iter(result), name=table)
         self.table_name = table
 
-    def _deserialize(self, open_file, deserializers):
+    def _deserialize(self, open_file: IO[str], deserializers: Iterable) -> None:
         """Try deserializers in order until one succeeds."""
         errors = []
         for deserializer in deserializers:
@@ -388,7 +401,7 @@ class Source:
         raise SyntaxError("{}: Could not deserialize {} (tried {})\nErrors:\n{}".format(
             self.table_name, open_file, ", ".join(str(s) for s in deserializers), "\n".join(errors)))
 
-    def _source_is_path(self, src):
+    def _source_is_path(self, src: str) -> None:
         """Handle file path sources."""
         file_path, file_extension = os.path.splitext(src)
         self.table_name = os.path.split(file_path)[1]
@@ -401,7 +414,7 @@ class Source:
         self._file_opened_by_us = True
         self._deserialize(self.file, deserializers)
 
-    def _source_is_open_file(self, src):
+    def _source_is_open_file(self, src: IO[str]) -> None:
         """Handle file-like object sources."""
         if hasattr(src, 'name'):
             name = src.name
@@ -414,7 +427,7 @@ class Source:
         self.file = src
         self._deserialize(src, deserializers)
 
-    def _source_is_url(self, src):
+    def _source_is_url(self, src: str) -> None:
         """Handle URL sources with SSRF protection."""
         self.table_name = filename_from_url(src) or 'url_data'
 
@@ -440,7 +453,7 @@ class Source:
             # Try all deserializers
             self._deserialize(StringIO(content), _FALLBACK_DESERIALIZERS)
 
-    def _source_is_excel_worksheet(self, sheet, name):
+    def _source_is_excel_worksheet(self, sheet: Any, name: str) -> 'NamedIter':
         """Extract data from an Excel worksheet (xlrd)."""
         headings = [f"Col{c}" for c in range(1, sheet.ncols + 1)]
         start_row = 0
@@ -458,7 +471,7 @@ class Source:
         generator = NamedIter(iter(data), name=f"{name}-{sheet.name}")
         return generator
 
-    def _source_is_xlsx_worksheet(self, sheet, name):
+    def _source_is_xlsx_worksheet(self, sheet: Any, name: str) -> 'NamedIter':
         """Extract data from an Excel .xlsx worksheet (openpyxl)."""
         max_col = sheet.max_column
         max_row = sheet.max_row
@@ -482,7 +495,7 @@ class Source:
         generator = NamedIter(iter(data), name=f"{name}-{sheet.title}")
         return generator
 
-    def _source_is_excel(self, spreadsheet, sheet='*'):
+    def _source_is_excel(self, spreadsheet: Any, sheet: str = '*') -> None:
         """Handle Excel file sources (.xls via xlrd, .xlsx via openpyxl)."""
         # Detect if this is an .xlsx file
         is_xlsx = False
@@ -542,39 +555,41 @@ class Source:
             self.generator = self._source_is_excel_worksheet(sheet_obj, name)
             self.table_name = self.generator.name
 
-    def _multiple_sources(self, sources):
+    def _multiple_sources(self, sources: Iterable) -> None:
         """Combine multiple sources into one iterator."""
         subsources = [Source(s, limit=self.limit) for s in sources]
         self.limit = None  # limit already applied to subsources
         self.generator = itertools.chain.from_iterable(subsources)
 
-    def __iter__(self):
+    def __iter__(self) -> 'Source':
         return self
 
-    def __next__(self):
+    def __next__(self) -> Any:
         self.counter += 1
         if self.limit and (self.counter > self.limit):
             raise StopIteration
         return next(self.generator)
 
-    def close(self):
+    def close(self) -> None:
         """Close any file opened by this Source."""
         if self._file_opened_by_us and self.file is not None:
             self.file.close()
             self.file = None
             self._file_opened_by_us = False
 
-    def __enter__(self):
+    def __enter__(self) -> 'Source':
         """Enter context manager."""
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: type[BaseException] | None,
+                 exc_val: BaseException | None,
+                 exc_tb: TracebackType | None) -> Literal[False]:
         """Exit context manager, ensuring file is closed."""
         self.close()
         return False
 
 
-def sqlalchemy_table_sources(url):
+def sqlalchemy_table_sources(url: str) -> Iterator['Source']:
     """
     Yield Source objects for each table in a SQLAlchemy database.
 
