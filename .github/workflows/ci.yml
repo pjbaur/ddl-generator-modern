@@ -19,7 +19,7 @@ jobs:
       - name: Run ruff
         run: ruff check ddlgenerator/ tests/
       - name: Run flake8
-        run: flake8 ddlgenerator/ tests/ --max-line-length=120 --ignore=E501,W503
+        run: flake8 ddlgenerator/ tests/
 
   typecheck:
     runs-on: ubuntu-latest
