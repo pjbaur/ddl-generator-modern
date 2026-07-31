@@ -7,6 +7,7 @@ Covers: _ensure_rows, _ordered_yaml_load, _json_loader, _interpret_fieldnames,
         Source class methods, sqlalchemy_table_sources
 """
 
+import contextlib
 import os
 import pathlib
 from io import StringIO
@@ -190,6 +191,18 @@ class TestTableScore:
         score = _table_score(tbl)
         assert score > 0
 
+    def test_row_count_outweighs_column_count(self):
+        """The score is meant to favour tables with many data rows. The first
+        term counted n_columns a second time instead of n_rows, so a short
+        wide table beat a tall narrow one."""
+        tall = bs4.BeautifulSoup(
+            "<table>" + "<tr><td>a</td><td>b</td></tr>" * 10 + "</table>",
+            'html.parser').find('table')
+        wide = bs4.BeautifulSoup(
+            "<table>" + "<tr>" + "<td>x</td>" * 10 + "</tr>" * 2 + "</table>",
+            'html.parser').find('table')
+        assert _table_score(tall) > _table_score(wide)
+
     def test_bonus_for_thead(self):
         """Tables with <thead> should get bonus points."""
         html_with_thead = """
@@ -334,6 +347,30 @@ class TestSourceUrl:
         mock_fetch.return_value = '[{"a": 1}]'
         src = Source("https://example.com/path/to/myfile.yaml")
         assert src.table_name == "myfile"
+
+    @pytest.mark.skipif(xlrd is None, reason="xlrd not installed")
+    @patch('ddlgenerator.sources.url_utils.safe_fetch_content')
+    @patch('ddlgenerator.sources.url_utils.safe_fetch_text')
+    def test_remote_xls_is_fetched_as_bytes(self, mock_text, mock_content):
+        """A spreadsheet is binary. Fetching it as text decodes it with a
+        guessed charset and re-encoding cannot recover the original bytes,
+        so the workbook never parses."""
+        mock_content.return_value = pathlib.Path(here("luxembourg.xls")).read_bytes()
+        rows = list(Source("https://example.com/data.xls"))
+        mock_content.assert_called_once_with("https://example.com/data.xls")
+        mock_text.assert_not_called()
+        assert rows
+
+    @patch('ddlgenerator.sources.url_utils.safe_fetch_content')
+    @patch('ddlgenerator.sources.url_utils.safe_fetch_text')
+    def test_remote_xlsx_is_fetched_as_bytes(self, mock_text, mock_content):
+        mock_content.return_value = b"PK\x03\x04not-really-a-workbook"
+        # The stub is not a real workbook, so parsing fails; what matters is
+        # which fetch was used to get the bytes.
+        with contextlib.suppress(Exception):
+            Source("https://example.com/data.xlsx")
+        mock_content.assert_called_once_with("https://example.com/data.xlsx")
+        mock_text.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

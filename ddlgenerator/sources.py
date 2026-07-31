@@ -160,9 +160,10 @@ def _eval_csv(target, fieldnames=None, **kwargs):
 
 def _table_score(tbl):
     """Score an HTML table by how likely it contains useful data."""
+    n_rows = len((tbl.tbody or tbl).find_all('tr', recursive=False))
     n_headings = len((tbl.thead or tbl).tr.find_all('th', recursive=False))
     n_columns = len(tbl.tr.find_all('td', recursive=False))
-    score = n_columns * 3 + n_headings * 10 + n_columns
+    score = n_rows * 3 + n_headings * 10 + n_columns
     if tbl.thead:
         score += 3
     return score
@@ -421,11 +422,13 @@ class Source:
         ext = ext.lower() if ext else '.html'
 
         # Use safe fetch with SSRF protection
+        if ext in ('.xls', '.xlsx'):
+            self._source_is_excel(url_utils.safe_fetch_content(src))
+            return
+
         content = url_utils.safe_fetch_text(src)
 
-        if ext.endswith('.xls'):
-            self._source_is_excel(content.encode())
-        elif ext == '.json':
+        if ext == '.json':
             self._deserialize(StringIO(content), [_json_loader])
         elif ext in ('.yaml', '.yml'):
             self._deserialize(StringIO(content), [_ordered_yaml_load])
