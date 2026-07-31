@@ -1,19 +1,22 @@
 #!/usr/bin/python
-# -*- coding: utf8
-import logging
-from collections import OrderedDict, defaultdict
-import doctest
-from hashlib import md5
 import copy  # noqa: F401 - used in doctests
-from pprint import pprint  # noqa: F401 - used in doctests
-from ddlgenerator.reserved import sql_reserved_words
+import doctest
+import logging
 import re
+from collections import OrderedDict, defaultdict
+from hashlib import md5
+from pprint import pprint  # noqa: F401 - used in doctests
+
+from ddlgenerator.reserved import sql_reserved_words
+
 try:
     import ddlgenerator.typehelpers as th
 except ImportError:
     import typehelpers as th
 
 _illegal_in_column_name = re.compile(r'[^a-zA-Z0-9_$#]')
+
+
 def clean_key_name(key):
     """
     Makes ``key`` a valid and appropriate SQL column name:
@@ -29,10 +32,11 @@ def clean_key_name(key):
     if not result:
         return 'unnamed_column'
     if result[0].isdigit():
-        result = '_%s' % result
+        result = f'_{result}'
     if result.upper() in sql_reserved_words:
-        result = '_%s' % key
+        result = f'_{key}'
     return result.lower()
+
 
 def walk_and_clean(data):
     """
@@ -48,13 +52,13 @@ def walk_and_clean(data):
     """
     # transform namedtuples to OrderedDicts
     if hasattr(data, '_fields'):
-        data = OrderedDict((k,v) for (k,v) in zip(data._fields, data))
+        data = OrderedDict((k, v) for (k, v) in zip(data._fields, data, strict=True))
     # Recursively clean up child dicts and lists
     if hasattr(data, 'items') and hasattr(data, '__setitem__'):
         for (key, val) in data.items():
             data[key] = walk_and_clean(val)
-    elif isinstance(data, list) or isinstance(data, tuple) \
-         or hasattr(data, '__next__') or hasattr(data, 'next'):
+    elif (isinstance(data, list) or isinstance(data, tuple)
+          or hasattr(data, '__next__') or hasattr(data, 'next')):
         data = [walk_and_clean(d) for d in data]
 
     # Clean up any keys in this dict itself
@@ -63,11 +67,11 @@ def walk_and_clean(data):
         tup = ((clean_key_name(k), v) for (k, v) in data.items())
         data = OrderedDict(tup)
         if len(data) < len(original_keys):
-            raise KeyError('Cleaning up %s created duplicates' %
-                           original_keys)
+            raise KeyError(f'Cleaning up {original_keys} created duplicates')
     return data
 
-def _id_fieldname(fieldnames, table_name = ''):
+
+def _id_fieldname(fieldnames, table_name=''):
     """
     Finds the field name from a dict likeliest to be its unique ID
 
@@ -77,13 +81,14 @@ def _id_fieldname(fieldnames, table_name = ''):
     'foo_id'
     >>> _id_fieldname({'bar': True, 'baz': 1, 'baz_id': 3}, 'foo')
     """
-    templates = ['%s_%%s' % table_name, '%s', '_%s']
+    templates = [f'{table_name}_%s', '%s', '_%s']
     for stub in ['id', 'num', 'no', 'number']:
         for t in templates:
             if t % stub in fieldnames:
                 return t % stub
 
-class UniqueKey(object):
+
+class UniqueKey:
     """
     Provides unique IDs.
 
@@ -99,17 +104,18 @@ class UniqueKey(object):
     """
     def __init__(self, key_name, key_type, start=0):
         self.name = key_name
-        if key_type != int and not hasattr(key_type, 'lower'):
-            raise NotImplementedError("Primary key field %s is %s, must be string or integer"
-                                      % (key_name, key_type))
+        if key_type is not int and not hasattr(key_type, 'lower'):
+            raise NotImplementedError(f"Primary key field {key_name} is {key_type}, must be string or integer")
         self.type = key_type
         self._counter = start
+
     def next(self):
-        if self.type == int:
+        if self.type is int:
             self._counter += 1
             return self._counter
         else:
             return md5().hexdigest()
+
 
 def unnest_child_dict(parent, key, parent_name=''):
     """
@@ -136,34 +142,34 @@ def unnest_child_dict(parent, key, parent_name=''):
 
     """
     val = parent[key]
-    name = "%s['%s']" % (parent_name, key)
-    logging.debug("Unnesting dict %s" % name)
+    name = f"{parent_name}['{key}']"
+    logging.debug(f"Unnesting dict {name}")
     id = _id_fieldname(val, parent_name)
     if id:
-        logging.debug("%s is %s's ID" % (id, key))
+        logging.debug(f"{id} is {key}'s ID")
         if len(val) <= 2:
-            logging.debug('Removing ID column %s.%s' % (key, id))
+            logging.debug(f'Removing ID column {key}.{id}')
             val.pop(id)
     if len(val) == 0:
-        logging.debug('%s is empty, removing from %s' % (name, parent_name))
+        logging.debug(f'{name} is empty, removing from {parent_name}')
         parent.pop(key)
         return
     elif len(val) == 1:
-        logging.debug('Nested one-item dict in %s, making scalar.' % name)
+        logging.debug(f'Nested one-item dict in {name}, making scalar.')
         parent[key] = list(val.values())[0]
         return
     else:
-        logging.debug('Pushing all fields from %s up to %s' % (name, parent_name))
-        new_field_names = ['%s_%s' % (key, child_key.strip('_')) for child_key in val]
+        logging.debug(f'Pushing all fields from {name} up to {parent_name}')
+        new_field_names = ['{}_{}'.format(key, child_key.strip('_')) for child_key in val]
         overlap = (set(new_field_names) & set(parent)) - set(id or [])
         if overlap:
-            logging.error("Could not unnest child %s; %s already present in %s (child key: %s)"
-                          % (name, ','.join(overlap), parent_name, key))
+            logging.error("Could not unnest child {}; {} already present in {} (child key: {})".format(name, ','.join(overlap), parent_name, key))
             return
         for (child_key, child_val) in val.items():
-            new_field_name = '%s_%s' % (key, child_key.strip('_'))
+            new_field_name = '{}_{}'.format(key, child_key.strip('_'))
             parent[new_field_name] = child_val
         parent.pop(key)
+
 
 _sample_data = [{'province': 'Québec', 'capital': {'name': 'Québec City', 'pop': 491140},
                  'id': 1, 'province_id': 1,
@@ -173,16 +179,19 @@ _sample_data = [{'province': 'Québec', 'capital': {'name': 'Québec City', 'pop
                 {'province': 'New Brunswick', 'capital': {'name': 'Fredricton', 'pop': 56224},
                  'id': 3, 'province_id': 3,
                  'cities': [{'name': 'Saint John', 'pop': 70063}, {'name': 'Moncton', 'pop': 69074}]},
-               ]
+                ]
+
 
 def all_values_for(data, field_name):
     return [row.get(field_name) for row in data if field_name in row]
+
 
 def unused_field_name(data, preferences):
     for pref in preferences:
         if not all_values_for(data, pref):
             return pref
-    raise KeyError("All desired names already taken in %s" % str(preferences))
+    raise KeyError(f"All desired names already taken in {str(preferences)}")
+
 
 class ParentTable(list):
     """
@@ -211,7 +220,7 @@ class ParentTable(list):
 
     def __init__(self, data, singular_name, pk_name=None, force_pk=False):
         self.name = singular_name
-        super(ParentTable, self).__init__(data)
+        super().__init__(data)
         self.pk_name = pk_name
         if force_pk or (self.pk_name and self.is_in_all_rows(self.pk_name)):
             self.assign_pk()
@@ -234,10 +243,10 @@ class ParentTable(list):
             return (False, None)     # non-unique
         if num_unique_values == len(self):
             return (True, key_type)  # perfect!
-        return ('partial', key_type) # unique, but some rows need populating
+        return ('partial', key_type)  # unique, but some rows need populating
 
     def use_this_pk(self, pk_name, key_type):
-        if key_type == int:
+        if key_type is int:
             self.pk = UniqueKey(pk_name, key_type, max([0, ] + all_values_for(self, pk_name)))
         else:
             self.pk = UniqueKey(pk_name, key_type)
@@ -247,13 +256,11 @@ class ParentTable(list):
 
         """
         if not self.pk_name:
-            self.pk_name = '%s_id' % self.name
-            logging.warning('Primary key %s.%s not requested, but nesting demands it'
-                            % (self.name, self.pk_name))
+            self.pk_name = f'{self.name}_id'
+            logging.warning(f'Primary key {self.name}.{self.pk_name} not requested, but nesting demands it')
         (suitability, key_type) = self.suitability_as_key(self.pk_name)
         if not suitability:
-            raise Exception('Duplicate values in %s.%s, unsuitable primary key'
-                            % (self.name, self.pk_name))
+            raise Exception(f'Duplicate values in {self.name}.{self.pk_name}, unsuitable primary key')
         self.use_this_pk(self.pk_name, key_type)
         if suitability in ('absent', 'partial'):
             for row in self:
@@ -278,9 +285,9 @@ def unnest_children(data, parent_name='', pk_name=None, force_pk=False):
       dict of the foreign key field name in each child
 
     """
-    possible_fk_names = ['%s_id' % parent_name, '_%s_id' % parent_name, 'parent_id', ]
+    possible_fk_names = [f'{parent_name}_id', f'_{parent_name}_id', 'parent_id', ]
     if pk_name:
-        possible_fk_names.insert(0, '%s_%s' % (parent_name, pk_name.strip('_')))
+        possible_fk_names.insert(0, '{}_{}'.format(parent_name, pk_name.strip('_')))
     children = defaultdict(list)
     field_names_used_by_children = defaultdict(set)
     child_fk_names = {}
@@ -293,8 +300,8 @@ def unnest_children(data, parent_name='', pk_name=None, force_pk=False):
                 elif isinstance(val, list) or isinstance(val, tuple):
                     # force listed items to be dicts, not scalars
                     row[key] = [v if hasattr(v, 'items') else {key: v} for v in val]
-        except AttributeError:
-            raise TypeError('Each row should be a dictionary, got %s: %s' % (type(row), row))
+        except AttributeError as err:
+            raise TypeError(f'Each row should be a dictionary, got {type(row)}: {row}') from err
         for (key, val) in row.items():
             if isinstance(val, list) or isinstance(val, tuple):
                 for child in val:
@@ -306,8 +313,7 @@ def unnest_children(data, parent_name='', pk_name=None, force_pk=False):
             if fk_name not in names_in_use:
                 break
         else:
-            raise Exception("Cannot find unused field name in %s.%s to use as foreign key"
-                            % (parent_name, child_name))
+            raise Exception(f"Cannot find unused field name in {parent_name}.{child_name} to use as foreign key")
         child_fk_names[child_name] = fk_name
         for row in parent:
             if child_name in row:
@@ -317,6 +323,7 @@ def unnest_children(data, parent_name='', pk_name=None, force_pk=False):
                 row.pop(child_name)
     # TODO: What if rows have a mix of scalar / list / dict types?
     return (parent, parent.pk.name if parent.pk else None, children, child_fk_names)
+
 
 if __name__ == '__main__':
     doctest.testmod(optionflags=doctest.NORMALIZE_WHITESPACE)

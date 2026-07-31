@@ -1,16 +1,15 @@
 import argparse
 import logging
 import re
-try:
-    from ddlgenerator.ddlgenerator import Table, dialect_names
-    from ddlgenerator.ddlgenerator import sqla_head, sqla_inserter_call
-    from ddlgenerator.ddlgenerator import emit_db_sequence_updates
-except ImportError:
-    from ddlgenerator import Table, dialect_names, sqla_head
-    from ddlgenerator import sqla_head, sqla_inserter_call
-    from ddlgenerator import emit_db_sequence_updates
-from ddlgenerator.sources import sqlalchemy_table_sources
 
+from ddlgenerator.ddlgenerator import (
+    Table,
+    dialect_names,
+    emit_db_sequence_updates,
+    sqla_head,
+    sqla_inserter_call,
+)
+from ddlgenerator.sources import sqlalchemy_table_sources
 
 parser = argparse.ArgumentParser(description='Generate DDL based on data')
 parser.add_argument('dialect', help='SQL dialect to output', type=str.lower)
@@ -37,22 +36,26 @@ parser.add_argument('--use-metadata-from', type=str, metavar='FILENAME',
 parser.add_argument('-l', '--log', type=str.upper,
                     help='log level (CRITICAL, FATAL, ERROR, DEBUG, INFO, WARN)', default='WARN')
 
+
 def set_logging(args):
     try:
         loglevel = int(getattr(logging, args.log))
-    except (AttributeError, TypeError) as e:
-        raise NotImplementedError('log level "%s" not one of CRITICAL, FATAL, ERROR, DEBUG, INFO, WARN' %
-                                  args.log)
+    except (AttributeError, TypeError) as err:
+        raise NotImplementedError(
+            f'log level "{args.log}" not one of CRITICAL, FATAL, ERROR, DEBUG, INFO, WARN'
+        ) from err
     logging.getLogger().setLevel(loglevel)
 
-is_sqlalchemy_url = re.compile("^%s" % "|".join(dialect_names))
+
+is_sqlalchemy_url = re.compile("^{}".format("|".join(dialect_names)))
+
 
 def generate_one(tbl, args, table_name=None, file=None):
     """
     Prints code (SQL, SQLAlchemy, etc.) to define a table.
     """
     table = Table(tbl, table_name=table_name, varying_length_text=args.text, uniques=args.uniques,
-                  pk_name = args.key, force_pk=args.force_key, reorder=args.reorder, data_size_cushion=args.cushion,
+                  pk_name=args.key, force_pk=args.force_key, reorder=args.reorder, data_size_cushion=args.cushion,
                   save_metadata_to=args.save_metadata_to, metadata_source=args.use_metadata_from,
                   loglevel=args.log, limit=args.limit)
     if args.dialect.startswith('sqla'):
@@ -67,6 +70,7 @@ def generate_one(tbl, args, table_name=None, file=None):
                         creates=(not args.no_creates), drops=args.drops,
                         metadata_source=args.use_metadata_from), file=file)
     return table
+
 
 def generate(args=None, namespace=None, file=None):
     """
@@ -89,7 +93,7 @@ def generate(args=None, namespace=None, file=None):
         args.dialect = 'sqlalchemy'
 
     if args.dialect not in dialect_names:
-        raise NotImplementedError('First arg must be one of: %s' % ", ".join(dialect_names))
+        raise NotImplementedError('First arg must be one of: {}'.format(", ".join(dialect_names)))
     if args.dialect == 'sqlalchemy':
         print(sqla_head, file=file)
     for datafile in args.datafile:
@@ -105,9 +109,8 @@ def generate(args=None, namespace=None, file=None):
             if t is not None and args.inserts:
                 for seq_update in emit_db_sequence_updates(t.source.db_engine):
                     if args.dialect == 'sqlalchemy':
-                        print('    conn.execute("%s")' % seq_update, file=file)
+                        print(f'    conn.execute("{seq_update}")', file=file)
                     elif args.dialect == 'postgresql':
                         print(seq_update, file=file)
         else:
             generate_one(datafile, args, file=file)
-

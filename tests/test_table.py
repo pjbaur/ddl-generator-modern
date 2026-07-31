@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Tests for ddlgenerator.ddlgenerator.Table methods (P3-2).
 
@@ -19,9 +18,9 @@ import yaml
 from ddlgenerator.ddlgenerator import (
     Table,
     UnsafeInputError,
-    _validate_data_source,
     _escape_string_value,
     _get_literal_processor,
+    _validate_data_source,
 )
 
 
@@ -645,7 +644,7 @@ class TestSaveableMetadata:
 
         # Should have column entries with metadata
         assert len(meta) > 0
-        for col_name, col_info in meta.items():
+        for col_info in meta.values():
             if isinstance(col_info, dict):
                 # Should have some metadata keys
                 assert "is_nullable" in col_info or "is_unique" in col_info or "pytype" in col_info

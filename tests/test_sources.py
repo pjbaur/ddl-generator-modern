@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Tests for ddlgenerator.sources module.
 
@@ -8,11 +7,9 @@ Covers: _ensure_rows, _ordered_yaml_load, _json_loader, _interpret_fieldnames,
         Source class methods, sqlalchemy_table_sources
 """
 
-import io
 import os
-from collections import OrderedDict
-from io import StringIO, BytesIO
-from unittest.mock import Mock, MagicMock, patch
+from io import StringIO
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -37,16 +34,16 @@ except ImportError:
     sqlalchemy = None
 
 from ddlgenerator.sources import (
-    _ensure_rows,
-    _ordered_yaml_load,
-    _json_loader,
-    _interpret_fieldnames,
-    _table_score,
-    _html_to_odicts,
     NamedIter,
-    filename_from_url,
-    Source,
     ParseException,
+    Source,
+    _ensure_rows,
+    _html_to_odicts,
+    _interpret_fieldnames,
+    _json_loader,
+    _ordered_yaml_load,
+    _table_score,
+    filename_from_url,
     sqlalchemy_table_sources,
 )
 
@@ -466,7 +463,7 @@ class TestSqlalchemyTableSources:
 
         # Mock the Source constructor to avoid needing real DB
         with patch.object(Source, '__init__', return_value=None):
-            sources = list(sqlalchemy_table_sources("sqlite:///test.db"))
+            list(sqlalchemy_table_sources("sqlite:///test.db"))
 
         mock_create_engine.assert_called_once_with("sqlite:///test.db")
         mock_meta_inst.reflect.assert_called_once()

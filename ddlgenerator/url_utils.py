@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 URL validation and safe fetching utilities for SSRF prevention.
 
@@ -184,7 +183,7 @@ def safe_fetch(url: str, timeout: int = DEFAULT_TIMEOUT, max_size: int = MAX_RES
     """
     if requests is None:
         raise ImportError("The 'requests' library is required for URL fetching. "
-                         "Install it with: pip install requests")
+                          "Install it with: pip install requests")
 
     # Validate URL before fetching
     validate_url(url)

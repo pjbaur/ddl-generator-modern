@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Tests for ddlgenerator.reshape module (P3-2).
 
@@ -12,14 +11,14 @@ from collections import OrderedDict, namedtuple
 import pytest
 
 from ddlgenerator.reshape import (
-    walk_and_clean,
-    _id_fieldname,
+    ParentTable,
     UniqueKey,
+    _id_fieldname,
+    all_values_for,
     unnest_child_dict,
     unnest_children,
-    ParentTable,
-    all_values_for,
     unused_field_name,
+    walk_and_clean,
 )
 
 

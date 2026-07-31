@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Data source handling for ddlgenerator.
 
@@ -25,14 +24,14 @@ Security notes:
 - URL fetching uses SSRF-safe methods from url_utils
 """
 
-from collections import OrderedDict
-from io import StringIO
 import csv
 import itertools
 import json
 import logging
 import os.path
 import urllib.parse
+from collections import OrderedDict
+from io import StringIO
 
 try:
     import yaml
@@ -70,10 +69,7 @@ except ImportError:
     logging.info("Could not import beautifulsoup4; HTML support disabled")
     bs4 = None
 
-try:
-    from ddlgenerator import url_utils
-except ImportError:
-    import url_utils
+from ddlgenerator import url_utils
 
 
 class ParseException(Exception):
@@ -147,9 +143,9 @@ def _interpret_fieldnames(target, fieldnames):
     reader = csv.reader(target)
     if fieldnames == 0:
         num_columns = len(next(reader))
-        fieldnames = ['Field%d' % (i+1) for i in range(num_columns)]
+        fieldnames = [f'Field{i + 1}' for i in range(num_columns)]
     else:
-        for i in range(fieldname_line_number):
+        for _ in range(fieldname_line_number):
             fieldnames = next(reader)
     return fieldnames
 
@@ -164,7 +160,6 @@ def _eval_csv(target, fieldnames=None, **kwargs):
 
 def _table_score(tbl):
     """Score an HTML table by how likely it contains useful data."""
-    n_rows = len((tbl.tbody or tbl).find_all('tr', recursive=False))
     n_headings = len((tbl.thead or tbl).tr.find_all('th', recursive=False))
     n_columns = len(tbl.tr.find_all('td', recursive=False))
     score = n_columns * 3 + n_headings * 10 + n_columns
@@ -189,13 +184,13 @@ def _html_to_odicts(html, **kwargs):
         headers = [td.text for td in (tbl.tbody or tbl).tr.find_all('td', recursive=False)]
     for col_num, header in enumerate(headers):
         if not header:
-            headers[col_num] = "Field%d" % (col_num + 1)
+            headers[col_num] = f"Field{col_num + 1}"
     for tr in (tbl.tbody or tbl).find_all('tr', recursive=False):
         if skips > 0:
             skips -= 1
             continue
         row = [td.text for td in tr.find_all('td')]
-        yield OrderedDict(zip(headers, row))
+        yield OrderedDict(zip(headers, row, strict=False))
 
 
 class NamedIter:
@@ -271,7 +266,7 @@ class Source:
         """
         self.counter = 0
         self.limit = limit
-        self.table_name = 'Table%d' % (Source.table_count)
+        self.table_name = f'Table{Source.table_count}'
         self.fieldnames = fieldnames
         self.db_engine = None
         self.generator = None
@@ -333,8 +328,7 @@ class Source:
         except (TypeError, ValueError, SyntaxError, ParseException):
             pass
 
-        raise NotImplementedError('Could not read data source %s of type %s' %
-                                  (str(src), str(type(src))))
+        raise NotImplementedError(f'Could not read data source {str(src)} of type {str(type(src))}')
 
     def _source_is_generator(self, src):
         """Handle iterator/generator sources."""
@@ -384,7 +378,7 @@ class Source:
                 logging.info(str(e))
                 errors.append(str(e))
 
-        raise SyntaxError("%s: Could not deserialize %s (tried %s)\nErrors:\n%s" % (
+        raise SyntaxError("{}: Could not deserialize {} (tried {})\nErrors:\n{}".format(
             self.table_name, open_file, ", ".join(str(s) for s in deserializers), "\n".join(errors)))
 
     def _source_is_path(self, src):
@@ -396,7 +390,7 @@ class Source:
 
         deserializers = _DESERIALIZERS.get(file_extension, _FALLBACK_DESERIALIZERS)
         # Keep file open during iteration - stored in self.file
-        self.file = open(src, 'r', encoding='utf-8')
+        self.file = open(src, encoding='utf-8')
         self._file_opened_by_us = True
         self._deserialize(self.file, deserializers)
 
@@ -439,7 +433,7 @@ class Source:
 
     def _source_is_excel_worksheet(self, sheet, name):
         """Extract data from an Excel worksheet (xlrd)."""
-        headings = ["Col%d" % c for c in range(1, sheet.ncols + 1)]
+        headings = [f"Col{c}" for c in range(1, sheet.ncols + 1)]
         start_row = 0
         for row_n in range(sheet.nrows):
             row_has_data = any(bool(v) for v in sheet.row_values(row_n))
@@ -450,16 +444,16 @@ class Source:
                 start_row = row_n + 1
                 break
 
-        data = [OrderedDict(zip(headings, sheet.row_values(r)))
+        data = [OrderedDict(zip(headings, sheet.row_values(r), strict=False))
                 for r in range(start_row, sheet.nrows)]
-        generator = NamedIter(iter(data), name="%s-%s" % (name, sheet.name))
+        generator = NamedIter(iter(data), name=f"{name}-{sheet.name}")
         return generator
 
     def _source_is_xlsx_worksheet(self, sheet, name):
         """Extract data from an Excel .xlsx worksheet (openpyxl)."""
         max_col = sheet.max_column
         max_row = sheet.max_row
-        headings = ["Col%d" % c for c in range(1, max_col + 1)]
+        headings = [f"Col{c}" for c in range(1, max_col + 1)]
         start_row = 1
 
         for row_n in range(1, max_row + 1):
@@ -475,8 +469,8 @@ class Source:
         data = []
         for r in range(start_row, max_row + 1):
             row_values = [cell.value for cell in sheet[r]]
-            data.append(OrderedDict(zip(headings, row_values)))
-        generator = NamedIter(iter(data), name="%s-%s" % (name, sheet.title))
+            data.append(OrderedDict(zip(headings, row_values, strict=False)))
+        generator = NamedIter(iter(data), name=f"{name}-{sheet.title}")
         return generator
 
     def _source_is_excel(self, spreadsheet, sheet='*'):
@@ -537,8 +531,8 @@ class Source:
                 try:
                     sheet_idx = workbook.sheet_names().index(sheet)
                     sheet_obj = workbook.sheets()[sheet_idx]
-                except ValueError:
-                    raise Exception("Sheet name or index %s not in workbook %s" % (sheet, name))
+                except ValueError as err:
+                    raise Exception(f"Sheet name or index {sheet} not in workbook {name}") from err
             self.generator = self._source_is_excel_worksheet(sheet_obj, name)
             self.table_name = self.generator.name
 

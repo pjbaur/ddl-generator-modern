@@ -1,6 +1,7 @@
 """Shared pytest fixtures and configuration for ddlgenerator tests."""
 
 import os
+
 import pytest
 
 try:

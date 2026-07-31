@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Tests for ddlgenerator.console module (P3-2).
 
@@ -8,11 +7,11 @@ Covers: CLI argument parsing, dialect aliases, set_logging, generate_one
 
 import io
 import logging
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from ddlgenerator.console import parser, set_logging, generate, generate_one
+from ddlgenerator.console import generate, generate_one, parser, set_logging
 
 
 class TestArgumentParsing:
@@ -84,7 +83,6 @@ class TestArgumentParsing:
 
 class TestDialectAliases:
     def test_pg_alias(self):
-        out = io.StringIO()
         # Use generate with string args, catch output
         args = parser.parse_args(["pg", "unused.yaml"])
         # Just test the alias mapping without running full generate
@@ -135,7 +133,7 @@ class TestGenerateOne:
         data = [{"id": 1, "name": "test"}]
         args = parser.parse_args(["postgresql", "dummy.yaml"])
         out = io.StringIO()
-        table = generate_one(data, args, table_name="test_tbl", file=out)
+        generate_one(data, args, table_name="test_tbl", file=out)
         output = out.getvalue()
         assert "CREATE TABLE" in output
         assert "test_tbl" in output
@@ -144,7 +142,7 @@ class TestGenerateOne:
         data = [{"id": 1, "name": "test"}]
         args = parser.parse_args(["-i", "postgresql", "dummy.yaml"])
         out = io.StringIO()
-        table = generate_one(data, args, table_name="test_tbl", file=out)
+        generate_one(data, args, table_name="test_tbl", file=out)
         output = out.getvalue()
         assert "INSERT INTO" in output
 
@@ -152,7 +150,7 @@ class TestGenerateOne:
         data = [{"id": 1, "name": "test"}]
         args = parser.parse_args(["-d", "postgresql", "dummy.yaml"])
         out = io.StringIO()
-        table = generate_one(data, args, table_name="test_tbl", file=out)
+        generate_one(data, args, table_name="test_tbl", file=out)
         output = out.getvalue()
         assert "DROP TABLE" in output
 
@@ -160,7 +158,7 @@ class TestGenerateOne:
         data = [{"id": 1, "name": "test"}]
         args = parser.parse_args(["sqlalchemy", "dummy.yaml"])
         out = io.StringIO()
-        table = generate_one(data, args, table_name="test_tbl", file=out)
+        generate_one(data, args, table_name="test_tbl", file=out)
         output = out.getvalue()
         assert "Column(" in output
 
@@ -190,7 +188,7 @@ class TestSqlAlchemyUrlInput:
         mock_sources.return_value = [mock_source]
 
         # Also need to mock generate_one to avoid full Table construction
-        with patch('ddlgenerator.console.generate_one') as mock_generate_one:
+        with patch('ddlgenerator.console.generate_one'):
             out = io.StringIO()
             generate("postgresql postgresql://user:pass@localhost/db", file=out)
             mock_sources.assert_called_once()
@@ -207,7 +205,7 @@ class TestSqlAlchemyUrlInput:
         mock_source.table_name = "users"
         mock_sources.return_value = [mock_source]
 
-        with patch('ddlgenerator.console.generate_one') as mock_generate_one:
+        with patch('ddlgenerator.console.generate_one'):
             out = io.StringIO()
             generate("-i postgresql postgresql://localhost/db", file=out)
             mock_sources.assert_called_once()
@@ -225,7 +223,7 @@ class TestSqlAlchemyUrlInput:
         mock_source.table_name = "empty_table"
         mock_sources.return_value = [mock_source]
 
-        with patch('ddlgenerator.console.generate_one') as mock_generate_one:
+        with patch('ddlgenerator.console.generate_one'):
             out = io.StringIO()
             # This should not raise NameError
             generate("-i postgresql postgresql://localhost/db", file=out)
@@ -239,7 +237,6 @@ class TestSqlAlchemyUrlInput:
 class TestMetadataRoundTrip:
     def test_save_metadata_to_file(self, tmp_path):
         """--save-metadata-to should save table structure to file."""
-        from ddlgenerator.ddlgenerator import Table
 
         data = [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
         meta_file = tmp_path / "metadata.yaml"
@@ -249,7 +246,7 @@ class TestMetadataRoundTrip:
             "postgresql", "dummy.yaml"
         ])
         out = io.StringIO()
-        table = generate_one(data, args, table_name="test_meta", file=out)
+        generate_one(data, args, table_name="test_meta", file=out)
 
         # Metadata file should be created
         assert meta_file.exists()
@@ -258,8 +255,9 @@ class TestMetadataRoundTrip:
 
     def test_use_metadata_from_dict(self):
         """--use-metadata-from should accept metadata dict (internal API)."""
-        from ddlgenerator.ddlgenerator import Table
         from collections import OrderedDict
+
+        from ddlgenerator.ddlgenerator import Table
 
         # Create metadata as OrderedDict (as would be loaded from file)
         metadata = OrderedDict([
@@ -277,7 +275,6 @@ class TestMetadataRoundTrip:
 
     def test_metadata_preserves_column_names(self, tmp_path):
         """Metadata should preserve column names."""
-        from ddlgenerator.ddlgenerator import Table
 
         data = [{"id": 1, "name": "Alice", "score": 95.5}]
         meta_file = tmp_path / "metadata.yaml"
@@ -287,10 +284,56 @@ class TestMetadataRoundTrip:
             "postgresql", "dummy.yaml"
         ])
         out = io.StringIO()
-        table = generate_one(data, args, table_name="test_struct", file=out)
+        generate_one(data, args, table_name="test_struct", file=out)
 
         # Verify metadata file was created with column info
         assert meta_file.exists()
         content = meta_file.read_text()
         # Column names should appear in the saved metadata
         assert "id" in content or "name" in content
+
+
+# Blocks a third-party module at import time, then imports the package and
+# reports whatever ImportError surfaces. Run in a subprocess so that blocking
+# an import cannot leak into the rest of the test session.
+_MISSING_DEP_PROBE = """
+import sys
+
+class Blocker:
+    def find_spec(self, name, path=None, target=None):
+        if name == {dep!r} or name.startswith({dep!r} + "."):
+            raise ImportError("No module named %r" % name)
+
+sys.meta_path.insert(0, Blocker())
+try:
+    import ddlgenerator.console
+except ImportError as e:
+    print(e)
+"""
+
+
+class TestMissingDependencyDiagnostics:
+    """A missing third-party dependency must name itself, not masquerade as a
+    circular import. The package previously wrapped its internal imports in
+    ``try/except ImportError`` fallbacks, which swallowed the real error and
+    re-raised a misleading one from the fallback branch."""
+
+    @pytest.mark.parametrize("dep", ["sqlalchemy", "yaml", "dateutil"])
+    def test_missing_dependency_names_itself(self, dep):
+        import subprocess
+        import sys
+
+        result = subprocess.run(
+            [sys.executable, "-c", _MISSING_DEP_PROBE.format(dep=dep)],
+            capture_output=True,
+            text=True,
+        )
+        message = (result.stdout + result.stderr).lower()
+
+        assert dep in message, f"error should name the missing module: {message!r}"
+        assert "circular import" not in message, (
+            f"missing dependency reported as a circular import: {message!r}"
+        )
+        assert "partially initialized" not in message, (
+            f"missing dependency reported as a partial init: {message!r}"
+        )
