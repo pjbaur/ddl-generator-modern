@@ -186,8 +186,11 @@ From source::
     cd ddl-generator
     pip install .
 
-For development::
+For development, install into a virtualenv so the console script and test
+dependencies resolve against the project rather than the system interpreter::
 
+    python -m venv .venv
+    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
     pip install -e ".[dev]"
 
 Security Notes

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Given data, automatically guess-generates DDL to create SQL tables.
 
@@ -35,10 +34,8 @@ against each file *separately*, setting up one table for each).
 """
 from __future__ import annotations
 
-from collections import OrderedDict
 import copy
 import datetime
-from decimal import Decimal
 import doctest
 import logging
 import os.path
@@ -46,25 +43,22 @@ import pprint
 import re
 import secrets
 import textwrap
-from typing import Any, Dict, Iterable, Iterator, List, Optional, TYPE_CHECKING, Union
+from collections import OrderedDict
+from decimal import Decimal
+from typing import Any
 
-import sqlalchemy as sa
-from sqlalchemy.schema import CreateTable
 import dateutil.parser
+import sqlalchemy as sa
 import yaml
+from sqlalchemy.schema import CreateTable
+
 try:
     import pymongo
 except ImportError:
     pymongo = None
+import ddlgenerator.typehelpers as th
+from ddlgenerator import reshape, url_utils
 from ddlgenerator.sources import Source
-try:
-    import ddlgenerator.typehelpers as th
-    from ddlgenerator import reshape
-    from ddlgenerator import url_utils
-except ImportError:
-    import typehelpers as th
-    import reshape
-    import url_utils
 
 # Module-level logger - libraries should never call logging.basicConfig()
 # as it configures the root logger and affects all logging in the application.
@@ -121,13 +115,15 @@ class KeyAlreadyExists(KeyError):
 dialect_names = '''drizzle firebird mssql mysql oracle postgresql
                    sqlite sybase sqlalchemy django'''.split()
 
+
 def _dump(sql, *multiparams, **params):
     pass
 
+
 mock_engines = {}
 for engine_name in ('postgresql', 'sqlite', 'mysql', 'oracle', 'mssql'):
-    mock_engines[engine_name] = sa.create_mock_engine('%s://' % engine_name,
-                                                       executor=_dump)
+    mock_engines[engine_name] = sa.create_mock_engine(f'{engine_name}://',
+                                                      executor=_dump)
 
 
 # Cache for literal processors per dialect to avoid repeated creation
@@ -179,7 +175,8 @@ def _escape_string_value(value, dialect_name):
     processor = _get_literal_processor(dialect_name)
     return processor(value)
 
-class Table(object):
+
+class Table:
     """
     >>> data = '''
     ... -
@@ -193,9 +190,9 @@ class Table(object):
     DROP TABLE IF EXISTS knights;
     <BLANKLINE>
     CREATE TABLE knights (
-    	name VARCHAR(8) NOT NULL,
-    	kg DECIMAL(3, 1) NOT NULL,
-    	dob TIMESTAMP WITHOUT TIME ZONE
+        name VARCHAR(8) NOT NULL,
+        kg DECIMAL(3, 1) NOT NULL,
+        dob TIMESTAMP WITHOUT TIME ZONE
     );
     """
 
@@ -209,28 +206,28 @@ class Table(object):
                 if os.path.isfile(data):
                     (file_path, file_extension) = os.path.splitext(data)
                     self.table_name = os.path.split(file_path)[1].lower()
-        self.table_name = self.table_name or \
-                          'generated_table%s' % Table.table_index
+        self.table_name = (self.table_name
+                           or f'generated_table{Table.table_index}')
         self.table_name = reshape.clean_key_name(self.table_name)
         Table.table_index += 1
 
     def __init__(
         self,
         data: Any,
-        table_name: Optional[str] = None,
-        default_dialect: Optional[str] = None,
-        save_metadata_to: Optional[str] = None,
-        metadata_source: Optional[Union[str, OrderedDict]] = None,
+        table_name: str | None = None,
+        default_dialect: str | None = None,
+        save_metadata_to: str | None = None,
+        metadata_source: str | OrderedDict | None = None,
         varying_length_text: bool = False,
         uniques: bool = False,
-        pk_name: Optional[str] = None,
+        pk_name: str | None = None,
         force_pk: bool = False,
         data_size_cushion: int = 0,
-        _parent_table: Optional["Table"] = None,
-        _fk_field_name: Optional[str] = None,
+        _parent_table: Table | None = None,
+        _fk_field_name: str | None = None,
         reorder: bool = False,
         loglevel: int = logging.WARNING,
-        limit: Optional[int] = None,
+        limit: int | None = None,
     ) -> None:
         """
         Initialize a Table and load its data.
@@ -272,8 +269,8 @@ class Table(object):
             except TypeError:
                 self.data = Source(data)
 
-        if (    self.table_name.startswith('generated_table')
-            and hasattr(self.data, 'table_name')):
+        if (self.table_name.startswith('generated_table')
+                and hasattr(self.data, 'table_name')):
             self.table_name = self.data.table_name
         self.table_name = self.table_name.lower()
 
@@ -282,11 +279,11 @@ class Table(object):
             self.pk_name = next(col.name for col in self.data.generator.sqla_columns if col.primary_key)
         else:
             self.data = reshape.walk_and_clean(self.data)
-            (self.data, self.pk_name, children, child_fk_names
-                ) = reshape.unnest_children(data=self.data,
-                                            parent_name=self.table_name,
-                                            pk_name=pk_name,
-                                            force_pk=force_pk)
+            (self.data, self.pk_name, children,
+             child_fk_names) = reshape.unnest_children(data=self.data,
+                                                       parent_name=self.table_name,
+                                                       pk_name=pk_name,
+                                                       force_pk=force_pk)
 
         self.default_dialect = default_dialect
         self.comments = {}
@@ -296,8 +293,7 @@ class Table(object):
                 logger.info('Column metadata passed in as OrderedDict')
                 self.columns = metadata_source
             else:
-                logger.info('Pulling column metadata from file %s'
-                             % metadata_source)
+                logger.info(f'Pulling column metadata from file {metadata_source}')
                 with open(metadata_source) as infile:
                     self.columns = yaml.safe_load(infile.read())
             for (col_name, col) in self.columns.items():
@@ -318,15 +314,14 @@ class Table(object):
             self.columns = ordered_columns
 
         if _parent_table:
-            fk = sa.ForeignKey('%s.%s' % (_parent_table.table_name,
-                                          _parent_table.pk_name))
+            fk = sa.ForeignKey(f'{_parent_table.table_name}.{_parent_table.pk_name}')
         else:
             fk = None
 
         self.table = sa.Table(self.table_name, self.metadata,
                               *[sa.Column(cname, col['satype'],
-                                          fk if fk and (_fk_field_name == cname)
-                                             else None,
+                                          (fk if fk and (_fk_field_name == cname)
+                                           else None),
                                           primary_key=(cname == self.pk_name),
                                           unique=(uniques and col['is_unique']),
                                           nullable=col['is_nullable'],
@@ -350,8 +345,7 @@ class Table(object):
                 save_metadata_to += '.yaml'
             with open(save_metadata_to, 'w') as outfile:
                 outfile.write(yaml.dump(self._saveable_metadata()))
-            logger.info('Pass ``--save-metadata-to %s`` next time to re-use structure' %
-                         save_metadata_to)
+            logger.info(f'Pass ``--save-metadata-to {save_metadata_to}`` next time to re-use structure')
 
     def _saveable_metadata(self):
         result = copy.copy(self.columns)
@@ -366,33 +360,34 @@ class Table(object):
             raise KeyError("No SQL dialect specified")
         dialect = dialect or self.default_dialect
         if dialect not in mock_engines:
-            raise NotImplementedError("SQL dialect '%s' unknown" % dialect)
+            raise NotImplementedError(f"SQL dialect '{dialect}' unknown")
         return dialect
 
     _supports_if_exists = {k: False for k in dialect_names}
     _supports_if_exists['postgresql'] = _supports_if_exists['sqlite'] = True
     _supports_if_exists['mysql'] = _supports_if_exists['sybase'] = True
+
     def _dropper(self, dialect):
         template = "DROP TABLE %s %s"
         if_exists = "IF EXISTS" if self._supports_if_exists[dialect] else ""
         return template % (if_exists, self.table_name)
 
     _comment_wrapper = textwrap.TextWrapper(initial_indent='-- ', subsequent_indent='-- ')
+
     def ddl(self, dialect=None, creates=True, drops=True):
         """
         Returns SQL to define the table.
         """
         dialect = self._dialect(dialect)
         creator = CreateTable(self.table).compile(mock_engines[dialect])
-        creator = "\n".join(l for l in str(creator).splitlines() if l.strip()) # remove empty lines
-        comments = "\n\n".join(self._comment_wrapper.fill("in %s: %s" %
-                                                        (col, self.comments[col]))
-                                                        for col in self.comments)
+        creator = "\n".join(line for line in str(creator).splitlines() if line.strip())  # remove empty lines
+        comments = "\n\n".join(self._comment_wrapper.fill(f"in {col}: {self.comments[col]}")
+                               for col in self.comments)
         result = []
         if drops:
             result.append(self._dropper(dialect) + ';')
         if creates:
-            result.append("%s;\n%s" % (creator, comments))
+            result.append(f"{creator};\n{comments}")
         for child in self.children.values():
             result.append(child.ddl(dialect=dialect, creates=creates,
                           drops=drops))
@@ -405,7 +400,7 @@ class Table(object):
 
         %s
 
-        metadata.create_all(engine)""" )
+        metadata.create_all(engine)""")
 
     def sqlalchemy(self, is_top=True):
         """Dumps Python code to set up the table's  SQLAlchemy model"""
@@ -415,9 +410,9 @@ class Table(object):
         constraint_defs = []
         for constraint in self.table.constraints:
             if isinstance(constraint, sa.sql.schema.UniqueConstraint):
-                col_list = ', '.join("'%s'" % c.name
+                col_list = ', '.join(f"'{c.name}'"
                                      for c in constraint.columns)
-                constraint_defs.append('UniqueConstraint(%s)' % col_list)
+                constraint_defs.append(f'UniqueConstraint({col_list})')
         if constraint_defs:
             constraint_defs = ',\n  '.join(constraint_defs) + ','
             table_def = table_def.replace('schema=None', '\n  ' + constraint_defs + 'schema=None')
@@ -427,7 +422,7 @@ class Table(object):
         table_def = table_def.replace("schema=", "\n  schema=")
         result = [table_def, ]
         result.extend(c.sqlalchemy(is_top=False) for c in self.children.values())
-        result = "\n%s = %s" % (self.table_name, "\n".join(result))
+        result = "\n{} = {}".format(self.table_name, "\n".join(result))
         if is_top:
             sqla_imports = set(self.capitalized_words.findall(table_def))
             sqla_imports &= set(dir(sa))
@@ -439,7 +434,7 @@ class Table(object):
 
     def django_models(self, metadata_source=None):
         sql = self.sql(dialect='postgresql', inserts=False, creates=True,
-            drops=True, metadata_source=metadata_source)
+                       drops=True, metadata_source=metadata_source)
         u = sql.split(';\n')
 
         try:
@@ -449,11 +444,11 @@ class Table(object):
             django = None
 
         if django:
+            import os
+            import sqlite3
+
             from django.conf import settings
             from django.core import management
-
-            import sqlite3
-            import os
 
             db_filename = 'generated_db.db'
             conn = None
@@ -470,8 +465,8 @@ class Table(object):
                         # Throwaway key for inspectdb only - not used for any security-sensitive operations
                         SECRET_KEY=secrets.token_hex(32),
                         ALLOWED_HOSTS='localhost',
-                        DATABASES = {'default' : {'NAME':db_filename,'ENGINE':'django.db.backends.sqlite3'}},
-                        )
+                        DATABASES={'default': {'NAME': db_filename, 'ENGINE': 'django.db.backends.sqlite3'}},
+                    )
                     django.setup()
                 management.call_command('inspectdb')
             finally:
@@ -487,9 +482,9 @@ class Table(object):
         pytype = self.columns[col]['pytype']
 
         if needs_conversion:
-            if pytype == datetime.datetime:
+            if pytype is datetime.datetime:
                 datum = dateutil.parser.parse(datum)
-            elif pytype == bool:
+            elif pytype is bool:
                 datum = th.coerce_to_specific(datum)
                 if dialect.startswith('sqlite'):
                     datum = 1 if datum else 0
@@ -498,7 +493,7 @@ class Table(object):
 
         if isinstance(datum, datetime.datetime) or isinstance(datum, datetime.date):
             # Standard ISO format works across most databases
-            return "'%s'" % datum
+            return f"'{datum}'"
         elif hasattr(datum, 'lower'):
             # Use SQLAlchemy's safe literal processor for string escaping
             return _escape_string_value(datum, dialect)
@@ -510,16 +505,15 @@ class Table(object):
     def inserts(self, dialect=None):
         if dialect and dialect.startswith("sqla"):
             if self.data:
-                yield "\ndef insert_%s(tbl, conn):" % self.table_name
+                yield f"\ndef insert_{self.table_name}(tbl, conn):"
                 yield "    inserter = tbl.insert()"
                 for row in self.data:
-                    yield textwrap.indent("conn.execute(inserter, **{row})"
-                                          .format(row=str(dict(row))),
+                    yield textwrap.indent(f"conn.execute(inserter, **{str(dict(row))})",
                                           "    ")
                 for seq_updater in emit_db_sequence_updates(self.source.db_engine):
-                    yield '    conn.execute("%s")' % seq_updater
+                    yield f'    conn.execute("{seq_updater}")'
             else:
-                yield "\n# No data for %s" % self.table.name
+                yield f"\n# No data for {self.table.name}"
         else:
             dialect = self._dialect(dialect)
             needs_conversion = not hasattr(self.data, 'generator') or not hasattr(self.data.generator, 'sqla_columns')
@@ -555,19 +549,19 @@ class Table(object):
         col['pytype'] = type(col['sample_datum'])
         if isinstance(col['sample_datum'], Decimal):
             (precision, scale) = th.precision_and_scale(col['sample_datum'])
-            col['satype'] = sa.DECIMAL(precision + self.data_size_cushion*2,
+            col['satype'] = sa.DECIMAL(precision + self.data_size_cushion * 2,
                                        scale + self.data_size_cushion)
         elif isinstance(col['sample_datum'], str):
             if self.varying_length_text:
                 col['satype'] = sa.Text()
             else:
                 str_len = max(len(col['sample_datum']), col['str_length'])
-                col['satype'] = sa.Unicode(str_len+self.data_size_cushion*2)
+                col['satype'] = sa.Unicode(str_len + self.data_size_cushion * 2)
         else:
             col['satype'] = self.types2sa[type(col['sample_datum'])]
             if col['satype'] == sa.Integer and (
-                col['sample_datum'] > (2147483647-self.data_size_cushion*1000000000) or
-                col['sample_datum'] < (-2147483647+self.data_size_cushion*1000000000)):
+                    col['sample_datum'] > (2147483647 - self.data_size_cushion * 1000000000)
+                    or col['sample_datum'] < (-2147483647 + self.data_size_cushion * 1000000000)):
                 col['satype'] = sa.BigInteger
         return col
 
@@ -576,7 +570,6 @@ class Table(object):
                 type(None): sa.Text}
 
     def _determine_types(self):
-        column_data = OrderedDict()
         self.columns = OrderedDict()
         if hasattr(self.data, 'generator') and hasattr(self.data.generator, 'sqla_columns'):
             for col in self.data.generator.sqla_columns:
@@ -599,22 +592,19 @@ class Table(object):
                 v_raw = row[k]
                 if not th.is_scalar(v_raw):
                     v = str(v_raw)
-                    self.comments[k] = 'nested values! example:\n%s' % \
-                                       pprint.pformat(v)
-                    logger.warning('in %s: %s' % (k, self.comments[k]))
+                    self.comments[k] = f'nested values! example:\n{pprint.pformat(v)}'
+                    logger.warning(f'in {k}: {self.comments[k]}')
                 v = th.coerce_to_specific(v_raw)
                 if k not in self.columns:
                     self.columns[k] = {'sample_datum': v,
                                        'str_length': len(str(v_raw)),
-                                       'is_nullable': not (rowcount == 1 and
-                                                           v is not None and
-                                                           str(v).strip()
-                                                           ),
+                                       'is_nullable': not (rowcount == 1
+                                                           and v is not None
+                                                           and str(v).strip()),
                                        'is_unique': set([v, ])}
                 else:
                     col = self.columns[k]
                     col['str_length'] = max(col['str_length'], len(str(v_raw)))
-                    old_sample_datum = col.get('sample_datum')
                     col['sample_datum'] = th.best_representative(
                         col['sample_datum'], v)
                     if (v is None) or (not str(v).strip()):
@@ -638,6 +628,7 @@ engine = create_engine(r'sqlite:///:memory:')
 metadata = MetaData()
 conn = engine.connect()"""
 
+
 def sqla_inserter_call(table_names):
     """Generate Python code string that defines an insert_test_rows function.
 
@@ -656,9 +647,10 @@ def insert_test_rows(meta, conn):
 
     Call ``meta.reflect()`` before passing calling this."""
 
-%s
-''' % '\n'.join("    insert_%s(meta.tables['%s'], conn)" % (t, t)
-                for t in table_names)
+{}
+'''.format('\n'.join(f"    insert_{t}(meta.tables['{t}'], conn)"
+                     for t in table_names))
+
 
 def emit_db_sequence_updates(engine):
     """Set database sequence objects to match the source db
@@ -669,16 +661,17 @@ def emit_db_sequence_updates(engine):
     if engine and engine.name == 'postgresql':
         # not implemented for other RDBMS; necessity unknown
         conn = engine.connect()
-        qry = """SELECT 'SELECT last_value FROM ' || n.nspname ||
+        seq_query = """SELECT 'SELECT last_value FROM ' || n.nspname ||
                          '.' || c.relname || ';' AS qry,
                         n.nspname || '.' || c.relname AS qual_name
                  FROM   pg_namespace n
                  JOIN   pg_class c ON (n.oid = c.relnamespace)
                  WHERE  c.relkind = 'S'"""
-        for (qry, qual_name) in list(conn.execute(qry)):
+        for (qry, qual_name) in list(conn.execute(seq_query)):
             (lastval, ) = conn.execute(qry).first()
             nextval = int(lastval) + 1
-            yield "ALTER SEQUENCE %s RESTART WITH %s;" % (qual_name, nextval)
+            yield f"ALTER SEQUENCE {qual_name} RESTART WITH {nextval};"
+
 
 if __name__ == '__main__':
     doctest.testmod(optionflags=doctest.NORMALIZE_WHITESPACE)

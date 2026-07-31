@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Tests for ddlgenerator.typehelpers module (P3-2).
 
@@ -10,19 +9,18 @@ Covers: coerce_to_specific, precision_and_scale, best_representative,
 import datetime
 from decimal import Decimal
 
-import pytest
 import sqlalchemy as sa
 
 from ddlgenerator.typehelpers import (
-    coerce_to_specific,
-    precision_and_scale,
-    best_representative,
-    is_scalar,
-    worst_decimal,
-    set_worst,
-    best_coercable,
-    sqla_datatype_for,
     _places_b4_and_after_decimal,
+    best_coercable,
+    best_representative,
+    coerce_to_specific,
+    is_scalar,
+    precision_and_scale,
+    set_worst,
+    sqla_datatype_for,
+    worst_decimal,
 )
 
 

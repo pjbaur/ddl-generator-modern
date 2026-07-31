@@ -22,8 +22,11 @@ docs/                   # Sphinx documentation
 ## Development
 
 ```bash
-# Install from source
-pip install -e ".[dev]"
+# Create the project virtualenv and install from source.
+# mise auto-activates .venv on cd (see .mise.toml); without mise,
+# run `source .venv/bin/activate` first.
+uv venv .venv -p 3.12
+uv pip install -e ".[dev,mongo]"
 
 # Run tests
 pytest

@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 test_ddlgenerator
 ----------------------------------
@@ -12,7 +11,7 @@ import contextlib
 import glob
 import io
 import os.path
-from collections import namedtuple, OrderedDict
+from collections import OrderedDict, namedtuple
 
 import pytest
 
@@ -71,7 +70,7 @@ class TestMongo:
                     self.client.close()
                 except Exception:
                     pass
-            pytest.skip("MongoDB not available: %s" % e)
+            pytest.skip(f"MongoDB not available: {e}")
 
         yield
 
@@ -140,7 +139,7 @@ class TestSequenceUpdates:
 
     def test_emit_db_sequence_updates_postgresql_only(self):
         """Sequence updates should only be generated for PostgreSQL engines"""
-        from unittest.mock import Mock, MagicMock
+        from unittest.mock import MagicMock, Mock
 
         # Mock a PostgreSQL engine
         mock_result = MagicMock()
@@ -200,7 +199,7 @@ class TestFiles:
             with open(sql_fname) as infile:
                 expected = infile.read().strip()
             (fname, ext) = os.path.splitext(sql_fname)
-            for source_fname in glob.glob(here('%s.*' % fname)):
+            for source_fname in glob.glob(here(f'{fname}.*')):
                 (fname, ext) = os.path.splitext(source_fname)
                 if ext != '.sql' and ext not in blocked_extensions:
                     tbl = Table(source_fname, uniques=True)

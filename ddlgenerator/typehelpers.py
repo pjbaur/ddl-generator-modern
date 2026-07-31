@@ -1,20 +1,20 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Various functions for examining data types.
 """
 from __future__ import annotations
 
 import datetime
-from decimal import Decimal, InvalidOperation
 import doctest
 import logging
 import math
 import re
-from typing import TYPE_CHECKING, Any, Iterable, Tuple, Union
+from collections.abc import Iterable
+from decimal import Decimal, InvalidOperation
+from typing import TYPE_CHECKING, Any
 
-import sqlalchemy as sa
 import dateutil.parser
+import sqlalchemy as sa
 
 if TYPE_CHECKING:
     pass
@@ -22,13 +22,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Type alias for coerced values - the most specific type a value can be coerced to
-CoercedValue = Union[datetime.datetime, bool, int, Decimal, float, str, None]
+CoercedValue = datetime.datetime | bool | int | Decimal | float | str | None
 
 
 def is_scalar(x: Any) -> bool:
     return hasattr(x, 'lower') or not hasattr(x, '__iter__')
 
-def precision_and_scale(x: Union[float, Decimal]) -> Tuple[int, int]:
+
+def precision_and_scale(x: float | Decimal) -> tuple[int, int]:
     """
     From a float, decide what precision and scale are needed to represent it.
 
@@ -60,8 +61,11 @@ def precision_and_scale(x: Union[float, Decimal]) -> Tuple[int, int]:
     scale = int(math.log10(frac_digits))
     return (magnitude + scale, scale)
 
+
 _complex_enough_to_be_date = re.compile(r"[\-\. /]")
 _digits_only = re.compile(r"^\d+$")
+
+
 def coerce_to_specific(datum: Any) -> CoercedValue:
     """
     Coerces datum to the most specific data type possible
@@ -83,13 +87,13 @@ def coerce_to_specific(datum: Any) -> CoercedValue:
     10
     """
     if datum is None:
-        return None 
+        return None
     try:
         result = dateutil.parser.parse(datum)
         # but even if this does not raise an exception, may
         # not be a date -- dateutil's parser is very aggressive
         # check for nonsense unprintable date
-        str(result) 
+        str(result)
         # most false date hits will be interpreted as times today
         # or as unlikely far-future or far-past years
         clean_datum = datum.strip().lstrip('-').lstrip('0').rstrip('.')
@@ -97,13 +101,11 @@ def coerce_to_specific(datum: Any) -> CoercedValue:
             digits = _digits_only.search(clean_datum)
             if (not digits) or (len(digits.group(0)) not in
                                 (4, 6, 8, 12, 14, 17)):
-                raise ValueError("false date hit for %s" % datum)
+                raise ValueError(f"false date hit for {datum}")
             if result.date() == datetime.datetime.now().date():
-                raise ValueError("false date hit (%s) for %s" % (
-                    str(result), datum))
+                raise ValueError(f"false date hit ({str(result)}) for {datum}")
             if not (1700 < result.year < 2150):
-                raise ValueError("false date hit (%s) for %s" % (
-                    str(result), datum))
+                raise ValueError(f"false date hit ({str(result)}) for {datum}")
         return result
     except (ValueError, TypeError, OverflowError):
         pass
@@ -125,13 +127,15 @@ def coerce_to_specific(datum: Any) -> CoercedValue:
         pass
     return str(datum)
 
-def _places_b4_and_after_decimal(d: Decimal) -> Tuple[int, int]:
+
+def _places_b4_and_after_decimal(d: Decimal) -> tuple[int, int]:
     """
     >>> _places_b4_and_after_decimal(Decimal('54.212'))
     (2, 3)
     """
     tup = d.as_tuple()
-    return (len(tup.digits) + tup.exponent, max(-1*tup.exponent, 0))
+    return (len(tup.digits) + tup.exponent, max(-1 * tup.exponent, 0))
+
 
 def worst_decimal(d1: Decimal, d2: Decimal) -> Decimal:
     """
@@ -145,6 +149,7 @@ def worst_decimal(d1: Decimal, d2: Decimal) -> Decimal:
     (d2b4, d2after) = _places_b4_and_after_decimal(d2)
     return Decimal('9' * max(d1b4, d2b4) + '.' + '9' * max(d1after, d2after))
 
+
 def set_worst(old_worst: Any, new_worst: Any) -> Any:
     """
     Pad new_worst with zeroes to prevent it being shorter than old_worst.
@@ -154,26 +159,26 @@ def set_worst(old_worst: Any, new_worst: Any) -> Any:
     >>> set_worst(98, -2)
     -20
     """
-    
+
     if isinstance(new_worst, bool):
         return new_worst
-    # Negative numbers confuse the length calculation. 
-    negative = ( (hasattr(old_worst, '__neg__') and old_worst < 0) or
-                 (hasattr(new_worst, '__neg__') and new_worst < 0) )
+    # Negative numbers confuse the length calculation.
+    negative = ((hasattr(old_worst, '__neg__') and old_worst < 0)
+                or (hasattr(new_worst, '__neg__') and new_worst < 0))
     try:
         old_worst = abs(old_worst)
         new_worst = abs(new_worst)
     except TypeError:
         pass
-   
-    # now go by length 
+
+    # now go by length
     new_len = len(str(new_worst))
     old_len = len(str(old_worst))
     if new_len < old_len:
         new_type = type(new_worst)
         new_worst = str(new_worst).ljust(old_len, '0')
         new_worst = new_type(new_worst)
-        
+
     # now put the removed negative back
     if negative:
         try:
@@ -181,9 +186,10 @@ def set_worst(old_worst: Any, new_worst: Any) -> Any:
         except TypeError:
             logger.debug("Could not apply negation to %s (type: %s)",
                          new_worst, type(new_worst).__name__)
-        
+
     return new_worst
-    
+
+
 def best_representative(d1: CoercedValue, d2: CoercedValue) -> Any:
     """
     Given two objects each coerced to the most specific type possible, return the one
@@ -202,7 +208,7 @@ def best_representative(d1: CoercedValue, d2: CoercedValue) -> Any:
     >>> best_representative(Decimal('-1.9'), Decimal('6.1'))
     Decimal('-9.9')
     """
-  
+
     if hasattr(d2, 'strip') and not d2.strip():
         return d1
     if d1 is None:
@@ -226,6 +232,7 @@ def best_representative(d1: CoercedValue, d2: CoercedValue) -> Any:
                 if len(str(coerced)) > len(str(worst)):
                     worst = set_worst(worst, coerced)
     return worst
+
 
 def best_coercable(data: Iterable[Any]) -> Any:
     """
@@ -261,6 +268,7 @@ def best_coercable(data: Iterable[Any]) -> Any:
                     worst = coerced
     return worst
 
+
 def sqla_datatype_for(datum: Any) -> Any:
     """
     Given a scalar Python value, picks an appropriate SQLAlchemy data type.
@@ -283,6 +291,7 @@ def sqla_datatype_for(datum: Any) -> Any:
         return sa.DECIMAL(prec, scale)
     except TypeError:
         return sa.Unicode(len(datum))
+
 
 if __name__ == '__main__':
     doctest.testmod(optionflags=doctest.NORMALIZE_WHITESPACE)

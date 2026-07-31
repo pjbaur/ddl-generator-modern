@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 Tests for ddlgenerator.sources module.
 
@@ -8,11 +7,11 @@ Covers: _ensure_rows, _ordered_yaml_load, _json_loader, _interpret_fieldnames,
         Source class methods, sqlalchemy_table_sources
 """
 
-import io
+import contextlib
 import os
-from collections import OrderedDict
-from io import StringIO, BytesIO
-from unittest.mock import Mock, MagicMock, patch
+import pathlib
+from io import StringIO
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -37,16 +36,16 @@ except ImportError:
     sqlalchemy = None
 
 from ddlgenerator.sources import (
-    _ensure_rows,
-    _ordered_yaml_load,
-    _json_loader,
-    _interpret_fieldnames,
-    _table_score,
-    _html_to_odicts,
     NamedIter,
-    filename_from_url,
-    Source,
     ParseException,
+    Source,
+    _ensure_rows,
+    _html_to_odicts,
+    _interpret_fieldnames,
+    _json_loader,
+    _ordered_yaml_load,
+    _table_score,
+    filename_from_url,
     sqlalchemy_table_sources,
 )
 
@@ -191,6 +190,18 @@ class TestTableScore:
         tbl = soup.find('table')
         score = _table_score(tbl)
         assert score > 0
+
+    def test_row_count_outweighs_column_count(self):
+        """The score is meant to favour tables with many data rows. The first
+        term counted n_columns a second time instead of n_rows, so a short
+        wide table beat a tall narrow one."""
+        tall = bs4.BeautifulSoup(
+            "<table>" + "<tr><td>a</td><td>b</td></tr>" * 10 + "</table>",
+            'html.parser').find('table')
+        wide = bs4.BeautifulSoup(
+            "<table>" + "<tr>" + "<td>x</td>" * 10 + "</tr>" * 2 + "</table>",
+            'html.parser').find('table')
+        assert _table_score(tall) > _table_score(wide)
 
     def test_bonus_for_thead(self):
         """Tables with <thead> should get bonus points."""
@@ -337,6 +348,30 @@ class TestSourceUrl:
         src = Source("https://example.com/path/to/myfile.yaml")
         assert src.table_name == "myfile"
 
+    @pytest.mark.skipif(xlrd is None, reason="xlrd not installed")
+    @patch('ddlgenerator.sources.url_utils.safe_fetch_content')
+    @patch('ddlgenerator.sources.url_utils.safe_fetch_text')
+    def test_remote_xls_is_fetched_as_bytes(self, mock_text, mock_content):
+        """A spreadsheet is binary. Fetching it as text decodes it with a
+        guessed charset and re-encoding cannot recover the original bytes,
+        so the workbook never parses."""
+        mock_content.return_value = pathlib.Path(here("luxembourg.xls")).read_bytes()
+        rows = list(Source("https://example.com/data.xls"))
+        mock_content.assert_called_once_with("https://example.com/data.xls")
+        mock_text.assert_not_called()
+        assert rows
+
+    @patch('ddlgenerator.sources.url_utils.safe_fetch_content')
+    @patch('ddlgenerator.sources.url_utils.safe_fetch_text')
+    def test_remote_xlsx_is_fetched_as_bytes(self, mock_text, mock_content):
+        mock_content.return_value = b"PK\x03\x04not-really-a-workbook"
+        # The stub is not a real workbook, so parsing fails; what matters is
+        # which fetch was used to get the bytes.
+        with contextlib.suppress(Exception):
+            Source("https://example.com/data.xlsx")
+        mock_content.assert_called_once_with("https://example.com/data.xlsx")
+        mock_text.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Source class - Excel
@@ -346,6 +381,54 @@ class TestSourceExcel:
     def test_source_is_excel_path(self):
         src = Source(here("luxembourg.xls"))
         assert "luxembourg" in src.table_name.lower() or src.table_name.startswith("Table")
+
+    def test_excel_path_longer_than_84_chars(self, tmp_path):
+        """A long absolute path is still a path, not spreadsheet contents.
+
+        The .xls branch used to treat any string of 84 or more characters as
+        raw file contents. xlrd then raised TypeError, Source swallowed it and
+        fell through to the glob branch, where the path matched itself and
+        recursed until the stack blew.
+        """
+        deep = tmp_path
+        while len(str(deep / "luxembourg.xls")) < 120:
+            deep = deep / "nested_directory_component"
+        deep.mkdir(parents=True, exist_ok=True)
+        target = deep / "luxembourg.xls"
+        target.write_bytes(pathlib.Path(here("luxembourg.xls")).read_bytes())
+        assert len(str(target)) >= 84
+
+        rows = list(Source(str(target)))
+        assert rows
+        assert list(rows[0])  # rows carry real column names, not an empty shell
+
+    def test_excel_source_is_iterable(self):
+        """NamedIter set __iter__/__next__ as instance attributes, which Python
+        ignores for dunder lookup, so every .xls source raised TypeError on
+        first read."""
+        rows = list(Source(here("luxembourg.xls")))
+        assert len(rows) == 6
+        assert "Name" in rows[0]
+
+    def test_unreadable_excel_raises_rather_than_recursing(self, tmp_path):
+        """A corrupt .xls must surface an error, not fall through to glob."""
+        bad = tmp_path / "corrupt.xls"
+        bad.write_bytes(b"this is not a spreadsheet")
+        with pytest.raises(Exception) as exc_info:
+            Source(str(bad))
+        assert not isinstance(exc_info.value, RecursionError)
+
+
+class TestSourceSelfMatchingGlob:
+    def test_directory_source_does_not_recurse(self, tmp_path):
+        """glob() matches a directory by its own name; expanding that as a
+        multi-source list rebuilt Source on the same path forever."""
+        try:
+            list(Source(str(tmp_path)))
+        except RecursionError:
+            pytest.fail("Source recursed on a self-matching glob")
+        except Exception:
+            pass  # any bounded failure is acceptable; unbounded recursion is not
 
 
 # ---------------------------------------------------------------------------
@@ -466,7 +549,7 @@ class TestSqlalchemyTableSources:
 
         # Mock the Source constructor to avoid needing real DB
         with patch.object(Source, '__init__', return_value=None):
-            sources = list(sqlalchemy_table_sources("sqlite:///test.db"))
+            list(sqlalchemy_table_sources("sqlite:///test.db"))
 
         mock_create_engine.assert_called_once_with("sqlite:///test.db")
         mock_meta_inst.reflect.assert_called_once()

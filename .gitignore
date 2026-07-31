@@ -1,3 +1,5 @@
+DEV-NOTES.md
+
 *.py[cod]
 *.log
 
@@ -44,6 +46,8 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+.venv/
+venv/
 
 # Claude
 .claude/settings.local.json
