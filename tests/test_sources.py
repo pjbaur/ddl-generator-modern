@@ -8,6 +8,7 @@ Covers: _ensure_rows, _ordered_yaml_load, _json_loader, _interpret_fieldnames,
 """
 
 import os
+import pathlib
 from io import StringIO
 from unittest.mock import MagicMock, Mock, patch
 
@@ -343,6 +344,54 @@ class TestSourceExcel:
     def test_source_is_excel_path(self):
         src = Source(here("luxembourg.xls"))
         assert "luxembourg" in src.table_name.lower() or src.table_name.startswith("Table")
+
+    def test_excel_path_longer_than_84_chars(self, tmp_path):
+        """A long absolute path is still a path, not spreadsheet contents.
+
+        The .xls branch used to treat any string of 84 or more characters as
+        raw file contents. xlrd then raised TypeError, Source swallowed it and
+        fell through to the glob branch, where the path matched itself and
+        recursed until the stack blew.
+        """
+        deep = tmp_path
+        while len(str(deep / "luxembourg.xls")) < 120:
+            deep = deep / "nested_directory_component"
+        deep.mkdir(parents=True, exist_ok=True)
+        target = deep / "luxembourg.xls"
+        target.write_bytes(pathlib.Path(here("luxembourg.xls")).read_bytes())
+        assert len(str(target)) >= 84
+
+        rows = list(Source(str(target)))
+        assert rows
+        assert list(rows[0])  # rows carry real column names, not an empty shell
+
+    def test_excel_source_is_iterable(self):
+        """NamedIter set __iter__/__next__ as instance attributes, which Python
+        ignores for dunder lookup, so every .xls source raised TypeError on
+        first read."""
+        rows = list(Source(here("luxembourg.xls")))
+        assert len(rows) == 6
+        assert "Name" in rows[0]
+
+    def test_unreadable_excel_raises_rather_than_recursing(self, tmp_path):
+        """A corrupt .xls must surface an error, not fall through to glob."""
+        bad = tmp_path / "corrupt.xls"
+        bad.write_bytes(b"this is not a spreadsheet")
+        with pytest.raises(Exception) as exc_info:
+            Source(str(bad))
+        assert not isinstance(exc_info.value, RecursionError)
+
+
+class TestSourceSelfMatchingGlob:
+    def test_directory_source_does_not_recurse(self, tmp_path):
+        """glob() matches a directory by its own name; expanding that as a
+        multi-source list rebuilt Source on the same path forever."""
+        try:
+            list(Source(str(tmp_path)))
+        except RecursionError:
+            pytest.fail("Source recursed on a self-matching glob")
+        except Exception:
+            pass  # any bounded failure is acceptable; unbounded recursion is not
 
 
 # ---------------------------------------------------------------------------

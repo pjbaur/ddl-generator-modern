@@ -197,9 +197,14 @@ class NamedIter:
     """Wrapper to attach a name attribute to an iterator."""
 
     def __init__(self, unnamed_iterator, name=None):
-        self.__iter__ = unnamed_iterator.__iter__
-        self.__next__ = unnamed_iterator.__next__
+        self._iterator = iter(unnamed_iterator)
         self.name = name
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self._iterator)
 
 
 def filename_from_url(url):
@@ -301,19 +306,20 @@ class Source:
 
         # File path
         try:
-            if os.path.isfile(src):
-                if src.lower().endswith('.xls'):
-                    self._source_is_excel(src, sheet=table)
-                else:
-                    self._source_is_path(src)
-                return
-        except TypeError:
-            pass
+            src_is_file = os.path.isfile(src)
+        except (TypeError, ValueError):
+            src_is_file = False
+        if src_is_file:
+            if src.lower().endswith('.xls'):
+                self._source_is_excel(src, sheet=table)
+            else:
+                self._source_is_path(src)
+            return
 
         # Glob pattern
         try:
             import glob
-            sources = sorted(glob.glob(src))
+            sources = [match for match in sorted(glob.glob(src)) if match != src]
             if sources:
                 self._multiple_sources(sources)
                 return
@@ -514,12 +520,9 @@ class Source:
         if isinstance(spreadsheet, bytes):
             workbook = xlrd.open_workbook(file_contents=spreadsheet)
             name = "excel"
-        elif len(spreadsheet) < 84 and spreadsheet.endswith('xls'):
+        else:
             workbook = xlrd.open_workbook(spreadsheet)
             name = spreadsheet
-        else:
-            workbook = xlrd.open_workbook(file_contents=spreadsheet)
-            name = "excel"
 
         if sheet == '*':
             generators = [self._source_is_excel_worksheet(s, name) for s in workbook.sheets()]
