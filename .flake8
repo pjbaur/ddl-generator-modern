@@ -1,0 +1,7 @@
+[flake8]
+max-line-length = 120
+# extend-ignore, not ignore: --ignore replaces flake8's default ignore list
+# (E121,E123,E126,E226,E24,E704,W503,W504), which switches those rules back on.
+# W504 in particular is the opposite of W503, so enabling it while ignoring
+# W503 silently mandates operator-at-line-start.
+extend-ignore = E501, W503
