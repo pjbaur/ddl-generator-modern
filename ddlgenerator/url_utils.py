@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 try:
     import requests
 except ImportError:
-    requests = None
+    requests = None  # type: ignore[assignment]
 
 # Constants for URL validation
 ALLOWED_SCHEMES = {'http', 'https'}

@@ -6,18 +6,15 @@ import re
 from collections import OrderedDict, defaultdict
 from hashlib import md5
 from pprint import pprint  # noqa: F401 - used in doctests
+from typing import Any
 
+import ddlgenerator.typehelpers as th
 from ddlgenerator.reserved import sql_reserved_words
-
-try:
-    import ddlgenerator.typehelpers as th
-except ImportError:
-    import typehelpers as th
 
 _illegal_in_column_name = re.compile(r'[^a-zA-Z0-9_$#]')
 
 
-def clean_key_name(key):
+def clean_key_name(key: Any) -> str:
     """
     Makes ``key`` a valid and appropriate SQL column name:
 
@@ -38,7 +35,7 @@ def clean_key_name(key):
     return result.lower()
 
 
-def walk_and_clean(data):
+def walk_and_clean(data: Any) -> Any:
     """
     Recursively walks list of dicts (which may themselves embed lists and dicts),
     transforming namedtuples to OrderedDicts and
@@ -71,7 +68,7 @@ def walk_and_clean(data):
     return data
 
 
-def _id_fieldname(fieldnames, table_name=''):
+def _id_fieldname(fieldnames: Any, table_name: str = '') -> str | None:
     """
     Finds the field name from a dict likeliest to be its unique ID
 
@@ -85,7 +82,8 @@ def _id_fieldname(fieldnames, table_name=''):
     for stub in ['id', 'num', 'no', 'number']:
         for t in templates:
             if t % stub in fieldnames:
-                return t % stub
+                return str(t % stub)
+    return None
 
 
 class UniqueKey:
@@ -102,14 +100,14 @@ class UniqueKey:
     >>> (len(id2), type(id2))
     (32, <class 'str'>)
     """
-    def __init__(self, key_name, key_type, start=0):
+    def __init__(self, key_name: str, key_type: type, start: int = 0) -> None:
         self.name = key_name
         if key_type is not int and not hasattr(key_type, 'lower'):
             raise NotImplementedError(f"Primary key field {key_name} is {key_type}, must be string or integer")
         self.type = key_type
         self._counter = start
 
-    def next(self):
+    def next(self) -> int | str:
         if self.type is int:
             self._counter += 1
             return self._counter
@@ -117,7 +115,7 @@ class UniqueKey:
             return md5().hexdigest()
 
 
-def unnest_child_dict(parent, key, parent_name=''):
+def unnest_child_dict(parent: dict, key: str, parent_name: str = '') -> None:
     """
     If ``parent`` dictionary has a ``key`` whose ``val`` is a dict,
     unnest ``val``'s fields into ``parent`` and remove ``key``.
@@ -182,11 +180,11 @@ _sample_data = [{'province': 'Québec', 'capital': {'name': 'Québec City', 'pop
                 ]
 
 
-def all_values_for(data, field_name):
+def all_values_for(data: Any, field_name: str) -> list:
     return [row.get(field_name) for row in data if field_name in row]
 
 
-def unused_field_name(data, preferences):
+def unused_field_name(data: Any, preferences: list[str]) -> str:
     for pref in preferences:
         if not all_values_for(data, pref):
             return pref
@@ -215,19 +213,21 @@ class ParentTable(list):
     [1, 4, 3]
 
     """
-    def is_in_all_rows(self, value):
+    def is_in_all_rows(self, value: str) -> bool:
         return len([1 for r in self if r.get(value)]) == len(self)
 
-    def __init__(self, data, singular_name, pk_name=None, force_pk=False):
+    def __init__(self, data: Any, singular_name: str,
+                 pk_name: str | None = None, force_pk: bool = False) -> None:
         self.name = singular_name
         super().__init__(data)
         self.pk_name = pk_name
+        self.pk: UniqueKey | None = None
         if force_pk or (self.pk_name and self.is_in_all_rows(self.pk_name)):
             self.assign_pk()
         else:
             self.pk = None
 
-    def suitability_as_key(self, key_name):
+    def suitability_as_key(self, key_name: str) -> tuple[Any, type | None]:
         """
         Returns: (result, key_type)
         ``result`` is True, False, or 'absent' or 'partial' (both still usable)
@@ -245,13 +245,14 @@ class ParentTable(list):
             return (True, key_type)  # perfect!
         return ('partial', key_type)  # unique, but some rows need populating
 
-    def use_this_pk(self, pk_name, key_type):
+    def use_this_pk(self, pk_name: str, key_type: type) -> UniqueKey:
         if key_type is int:
             self.pk = UniqueKey(pk_name, key_type, max([0, ] + all_values_for(self, pk_name)))
         else:
             self.pk = UniqueKey(pk_name, key_type)
+        return self.pk
 
-    def assign_pk(self):
+    def assign_pk(self) -> UniqueKey:
         """
 
         """
@@ -259,16 +260,18 @@ class ParentTable(list):
             self.pk_name = f'{self.name}_id'
             logging.warning(f'Primary key {self.name}.{self.pk_name} not requested, but nesting demands it')
         (suitability, key_type) = self.suitability_as_key(self.pk_name)
-        if not suitability:
+        if not suitability or key_type is None:
             raise Exception(f'Duplicate values in {self.name}.{self.pk_name}, unsuitable primary key')
-        self.use_this_pk(self.pk_name, key_type)
+        pk = self.use_this_pk(self.pk_name, key_type)
         if suitability in ('absent', 'partial'):
             for row in self:
                 if self.pk_name not in row:
-                    row[self.pk_name] = self.pk.next()
+                    row[self.pk_name] = pk.next()
+        return pk
 
 
-def unnest_children(data, parent_name='', pk_name=None, force_pk=False):
+def unnest_children(data: Any, parent_name: str = '', pk_name: str | None = None,
+                    force_pk: bool = False) -> tuple[Any, str | None, dict, dict]:
     """
     For each ``key`` in each row of ``data`` (which must be a list of dicts),
     unnest any dict values into ``parent``, and remove list values into separate lists.
@@ -307,8 +310,7 @@ def unnest_children(data, parent_name='', pk_name=None, force_pk=False):
                 for child in val:
                     field_names_used_by_children[key].update(set(child.keys()))
     for (child_name, names_in_use) in field_names_used_by_children.items():
-        if not parent.pk:
-            parent.assign_pk()
+        pk = parent.pk or parent.assign_pk()
         for fk_name in possible_fk_names:
             if fk_name not in names_in_use:
                 break
@@ -318,7 +320,7 @@ def unnest_children(data, parent_name='', pk_name=None, force_pk=False):
         for row in parent:
             if child_name in row:
                 for child in row[child_name]:
-                    child[fk_name] = row[parent.pk.name]
+                    child[fk_name] = row[pk.name]
                     children[child_name].append(child)
                 row.pop(child_name)
     # TODO: What if rows have a mix of scalar / list / dict types?
