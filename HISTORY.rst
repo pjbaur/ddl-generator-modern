@@ -3,6 +3,43 @@
 History
 -------
 
+0.2.1 (2026-07-31)
+++++++++++++++++++
+
+**Bug fix release**
+
+The 0.2.0 tag never published; its release workflow failed at the upload
+step. This release carries the fixes merged since then.
+
+Bug Fixes
+~~~~~~~~~
+
+* Reading a ``.xls`` file whose absolute path was 84 characters or longer
+  recursed until the stack overflowed. The path was misread as raw
+  spreadsheet contents, the resulting error was swallowed, and the fallback
+  expanded the path into a glob that matched itself.
+* ``Source`` given a directory recursed the same way, for the same reason.
+* No ``.xls`` file could be read at all: ``NamedIter`` set ``__iter__`` and
+  ``__next__`` as instance attributes, which Python ignores when resolving
+  dunder methods, so every read raised ``TypeError``.
+* Remote spreadsheets were fetched as text and re-encoded, which corrupts
+  binary content. ``.xls`` and ``.xlsx`` URLs are now fetched as bytes;
+  ``.xlsx`` URLs were previously not recognised as spreadsheets at all.
+* A missing dependency reported itself as a circular import, because the
+  internal imports were wrapped in ``try/except ImportError`` with a
+  fallback branch that raised a different, misleading error.
+* ``_table_score`` counted columns twice and ignored the row count it had
+  computed, so a short wide HTML table could outrank a tall narrow one.
+* Project URLs in the package metadata pointed at a repository that does
+  not exist.
+
+Other
+~~~~~
+
+* Test suite grown from 288 to 295 tests; coverage 82% to 84%.
+* ``ruff`` and ``flake8`` both run clean, so the CI lint job passes.
+* Added ``.mise.toml`` so the project virtualenv activates automatically.
+
 0.2.0 (2026-03-03)
 ++++++++++++++++++
 

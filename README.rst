@@ -2,16 +2,16 @@
 DDL Generator
 =============
 
-.. image:: https://github.com/pjbaur/ddl-generator/actions/workflows/ci.yml/badge.svg
-   :target: https://github.com/pjbaur/ddl-generator/actions/workflows/ci.yml
+.. image:: https://github.com/pjbaur/ddl-generator-modern/actions/workflows/ci.yml/badge.svg
+   :target: https://github.com/pjbaur/ddl-generator-modern/actions/workflows/ci.yml
    :alt: CI Status
 
 .. image:: https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue.svg
    :target: https://pypi.org/project/ddl-generator/
    :alt: Python Versions
 
-.. image:: https://img.shields.io/badge/version-0.2.0-green.svg
-   :target: https://github.com/pjbaur/ddl-generator/releases
+.. image:: https://img.shields.io/badge/version-0.2.1-green.svg
+   :target: https://github.com/pjbaur/ddl-generator-modern/releases
    :alt: Version
 
 Infers SQL DDL (Data Definition Language) from table data.
@@ -182,7 +182,7 @@ With optional extras::
 
 From source::
 
-    git clone https://github.com/pjbaur/ddl-generator.git
+    git clone https://github.com/pjbaur/ddl-generator-modern.git
     cd ddl-generator
     pip install .
 
