@@ -1,0 +1,8 @@
+[tools]
+python = "3.12"
+
+[env]
+# Auto-activate the project virtualenv on cd. Created if missing so that
+# `pytest` / `ruff` / `ddlgenerator` resolve to project deps rather than to
+# the bare mise-managed interpreter.
+_.python.venv = { path = ".venv", create = true }
