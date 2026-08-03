@@ -20,6 +20,8 @@ from ddlgenerator.ddlgenerator import (
     UnsafeInputError,
     _escape_string_value,
     _get_literal_processor,
+    _metadata_from_safe,
+    _metadata_to_safe,
     _validate_data_source,
 )
 
@@ -655,3 +657,98 @@ class TestSaveableMetadata:
         tbl = Table([{"a": 1}], table_name="test_empty")
         meta = tbl._saveable_metadata()
         assert isinstance(meta, dict)
+
+
+# ---------------------------------------------------------------------------
+# Metadata save / restore round-trip (regression for the safe_load bug)
+# ---------------------------------------------------------------------------
+class TestMetadataRoundTrip:
+    """The --save-metadata-to / --use-metadata-from round-trip must reproduce DDL.
+
+    Previously the metadata was written with ``yaml.dump`` (Python object tags)
+    but read with ``yaml.safe_load`` (which rejects those tags), so the
+    documented large-table workflow crashed with a ``ConstructorError``.  These
+    tests pin the fix: the file is plain safe YAML and the restored schema is
+    identical to a fresh inference.
+    """
+
+    @staticmethod
+    def _ddl(table):
+        # Normalize whitespace so string comparison is stable.
+        return " ".join(table.sql("postgresql").split())
+
+    def test_flat_table_roundtrip_reproduces_ddl(self, tmp_path):
+        data = [{"name": "Alfred", "species": "wart hog", "kg": 22},
+                {"name": "Gertrude", "species": "polar bear", "kg": 312.7}]
+        fresh = Table(data, table_name="animals", reorder=True)
+        meta_path = tmp_path / "animals.meta.yaml"
+
+        Table(data, table_name="animals", reorder=True, save_metadata_to=str(meta_path))
+
+        assert meta_path.exists(), "save_metadata_to should write the file"
+        restored = Table(data, table_name="animals", reorder=True,
+                         metadata_source=str(meta_path))
+
+        assert self._ddl(fresh) == self._ddl(restored)
+
+    def test_decimal_column_roundtrips(self, tmp_path):
+        """Decimal columns (the type that previously carried a python tag) must survive."""
+        data = [{"amount": "12.50"}, {"amount": "3.00"}]  # coerced to Decimal
+        fresh = Table(data, table_name="money")
+        meta_path = tmp_path / "money.meta.yaml"
+        Table(data, table_name="money", save_metadata_to=str(meta_path))
+        restored = Table(data, table_name="money", metadata_source=str(meta_path))
+
+        # The DECIMAL precision/scale is reconstructed from the saved sample.
+        assert "DECIMAL" in restored.sql("postgresql")
+        assert self._ddl(fresh) == self._ddl(restored)
+
+    def test_nested_table_roundtrip_reproduces_ddl(self, tmp_path):
+        """Child tables must survive the round-trip, including the foreign key."""
+        birds = here("birds.yaml")
+        fresh = Table(birds)
+        meta_path = tmp_path / "birds.meta.yaml"
+        Table(birds, save_metadata_to=str(meta_path))
+
+        saved = meta_path.read_text()
+        assert "children:" in saved, "child table should be nested under children"
+
+        restored = Table(birds, metadata_source=str(meta_path))
+        assert self._ddl(fresh) == self._ddl(restored)
+
+    def test_saved_metadata_has_no_python_tags(self, tmp_path):
+        """The file must be plain safe YAML -- no ``!!python/...`` tags."""
+        data = [{"id": 1, "name": "Alice", "score": 95.5, "joined": "2020-01-01"}]
+        meta_path = tmp_path / "plain.meta.yaml"
+        Table(data, table_name="t", save_metadata_to=str(meta_path))
+
+        content = meta_path.read_text()
+        assert "!!python/" not in content
+        # And it must parse cleanly with safe_load (the original failure mode).
+        assert isinstance(yaml.safe_load(content), dict)
+
+    def test_helpers_round_trip_native_types(self):
+        """str/int/float/bool/None sample values survive to_safe -> from_safe."""
+        col = {"sample_datum": "hi", "str_length": 2, "is_nullable": False,
+               "is_unique": True, "pytype": str}
+        node = _metadata_to_safe(OrderedDict([("name", col)]))
+        back = _metadata_from_safe(node)
+        assert back["name"]["sample_datum"] == "hi"
+        assert back["name"]["str_length"] == 2
+        assert back["name"]["is_nullable"] is False
+
+    def test_unknown_pytype_is_rejected(self, tmp_path):
+        """A metadata file naming an arbitrary type must not be loaded."""
+        meta_path = tmp_path / "evil.meta.yaml"
+        meta_path.write_text(
+            "columns:\n"
+            "  evil:\n"
+            "    pytype: os.system\n"
+            "    sample_datum: whatever\n"
+            "    str_length: 8\n"
+            "    is_nullable: false\n"
+            "    is_unique: true\n"
+            "children: {}\n"
+        )
+        with pytest.raises(ValueError):
+            Table([{"evil": "x"}], table_name="t", metadata_source=str(meta_path))
