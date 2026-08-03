@@ -19,6 +19,10 @@ Infers SQL DDL (Data Definition Language) from table data.
 **Fork of the original `catherinedevlin/ddl-generator <https://github.com/catherinedevlin/ddl-generator>`_
 with modern Python support, SQLAlchemy 2.x compatibility, and security fixes.**
 
+A complete, example-driven `HTML user guide <docs/user_guide.html>`_ is
+included at ``docs/user_guide.html`` — open it in a browser; it is
+self-contained and works offline.
+
 Use at command line::
 
     $ ddlgenerator -i postgresql '[{"Name": "Alfred", "species": "wart hog", "kg": 22}]'

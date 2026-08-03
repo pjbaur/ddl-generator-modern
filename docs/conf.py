@@ -85,6 +85,10 @@ html_theme_options = {
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
 
+# Standalone (non-.rst) files copied verbatim into the HTML output, so they
+# are served from the built docs site. Currently: the single-page user guide.
+html_extra_path = ['user_guide.html']
+
 # Output file base name for HTML help builder.
 htmlhelp_basename = 'ddlgeneratordoc'
 
