@@ -10,7 +10,7 @@ DDL Generator
    :target: https://pypi.org/project/ddl-generator/
    :alt: Python Versions
 
-.. image:: https://img.shields.io/badge/version-0.2.1-green.svg
+.. image:: https://img.shields.io/badge/version-0.2.2-green.svg
    :target: https://github.com/pjbaur/ddl-generator-modern/releases
    :alt: Version
 

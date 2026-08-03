@@ -3,6 +3,47 @@
 History
 -------
 
+0.2.2 (2026-08-03)
+++++++++++++++++++
+
+**Bug fix and documentation release**
+
+Bug Fixes
+~~~~~~~~~
+
+* The ``--save-metadata-to`` / ``--use-metadata-from`` workflow (the
+  recommended path for tables too large to analyze in one pass) crashed
+  with a ``ConstructorError``.  Schema metadata was written with
+  ``yaml.dump``, which emits Python object tags, but read back with
+  ``yaml.safe_load``, which rejects those tags.  Metadata is now written
+  as plain safe YAML: an explicit ``columns`` / ``children`` structure
+  with column types stored as names and resolved through a fixed
+  whitelist on load.  The read side stays on ``yaml.safe_load`` rather
+  than being weakened to ``yaml.unsafe_load``.  Restored schemas are
+  identical to a fresh inference, for flat and nested tables alike.
+* A latent ``RuntimeError`` (dictionary changed size during iteration)
+  in the child-table split prevented nested tables from being restored
+  from saved metadata.
+* An unknown column type in a metadata file now raises a clear
+  ``ValueError`` instead of being imported, so a tampered metadata file
+  cannot name its way into arbitrary code execution.
+
+Documentation
+~~~~~~~~~~~~~
+
+* Added a comprehensive, self-contained HTML user guide at
+  ``docs/user_guide.html``: quickstart, data formats, SQL dialects, type
+  inference, the full CLI reference, nested/child tables, ORM
+  generation, the large-tables workflow, the Python API, security,
+  recipes, and troubleshooting.  All examples are verbatim output
+  verified against the tool.  Linked from the README and the Sphinx
+  landing page.
+
+Other
+~~~~~
+
+* Test suite grown from 295 to 301 tests.
+
 0.2.1 (2026-07-31)
 ++++++++++++++++++
 
