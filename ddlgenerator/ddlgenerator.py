@@ -180,6 +180,109 @@ def _escape_string_value(value: str, dialect_name: str) -> str:
     return str(processor(value))
 
 
+# Whitelist of Python types that can appear as an inferred column's
+# ``sample_datum``.  Metadata files store type *names* (strings); on load we
+# resolve a name back to a type through this registry only -- never by
+# importing arbitrary modules -- so a crafted metadata file cannot trigger
+# arbitrary code execution the way ``yaml.unsafe_load`` could.
+_METADATA_PYTYPE_REGISTRY: dict[str, type] = {
+    'builtins.str': str,
+    'builtins.int': int,
+    'builtins.float': float,
+    'builtins.bool': bool,
+    'builtins.NoneType': type(None),
+    'decimal.Decimal': Decimal,
+    'datetime.datetime': datetime.datetime,
+    'datetime.date': datetime.date,
+}
+
+
+def _pytype_name(pytype: type) -> str:
+    """Fully-qualified, registry-stable name for a Python type."""
+    return f"{pytype.__module__}.{pytype.__qualname__}"
+
+
+def _column_metadata_to_safe(col: dict[str, Any]) -> dict[str, Any]:
+    """
+    Convert one in-memory column descriptor into plain YAML-safe scalars.
+
+    Only ``Decimal`` / ``datetime`` samples are non-native for YAML; those are
+    stringified and rebuilt on load using the stored ``pytype`` name.
+    """
+    sample = col.get('sample_datum')
+    pytype = col.get('pytype') or type(sample)
+    if isinstance(sample, (datetime.datetime, datetime.date)):
+        sample_repr: Any = sample.isoformat()
+    elif isinstance(sample, Decimal):
+        sample_repr = str(sample)
+    else:
+        sample_repr = sample
+    return {
+        'pytype': _pytype_name(pytype),
+        'sample_datum': sample_repr,
+        'str_length': col.get('str_length'),
+        'is_nullable': col.get('is_nullable'),
+        'is_unique': col.get('is_unique'),
+    }
+
+
+def _column_metadata_from_safe(col: dict[str, Any]) -> dict[str, Any]:
+    """Reverse of :func:`_column_metadata_to_safe` for a single column."""
+    try:
+        pytype = _METADATA_PYTYPE_REGISTRY[col['pytype']]
+    except KeyError:
+        # Reject anything outside the whitelist rather than importing it --
+        # a tampered metadata file must not be able to name arbitrary code.
+        raise ValueError(
+            f"Unknown column type {col['pytype']!r} in metadata file; "
+            f"not a recognized ddlgenerator column type.") from None
+    sample: Any = col['sample_datum']
+    if pytype is Decimal:
+        sample = Decimal(str(sample))
+    elif pytype is datetime.datetime:
+        sample = datetime.datetime.fromisoformat(str(sample))
+    elif pytype is datetime.date:
+        sample = datetime.date.fromisoformat(str(sample))
+    # native scalars (str/int/float/bool/None) round-trip via safe_load as-is
+    return {
+        'sample_datum': sample,
+        'pytype': pytype,
+        'str_length': col['str_length'],
+        'is_nullable': col['is_nullable'],
+        'is_unique': col['is_unique'],
+    }
+
+
+def _metadata_to_safe(mixed: OrderedDict) -> dict[str, Any]:
+    """
+    Serialize a table's in-memory column metadata to a plain, YAML-safe dict.
+
+    The in-memory structure interleaves leaf columns (plain ``dict`` values)
+    with child-table metadata (``OrderedDict`` values).  We split them into an
+    explicit ``columns`` / ``children`` shape so the file round-trips through
+    ``yaml.safe_dump`` / ``yaml.safe_load`` without relying on Python object
+    tags (which ``safe_load`` refuses and which would be unsafe to restore).
+    """
+    columns: dict[str, Any] = {}
+    children: dict[str, Any] = {}
+    for name, value in mixed.items():
+        if isinstance(value, OrderedDict):
+            children[name] = _metadata_to_safe(value)
+        else:
+            columns[name] = _column_metadata_to_safe(value)
+    return {'columns': columns, 'children': children}
+
+
+def _metadata_from_safe(node: dict[str, Any]) -> OrderedDict:
+    """Reverse of :func:`_metadata_to_safe`, returning the mixed OrderedDict."""
+    result: OrderedDict = OrderedDict()
+    for name, col in (node or {}).get('columns', {}).items():
+        result[name] = _column_metadata_from_safe(col)
+    for name, child_node in (node or {}).get('children', {}).items():
+        result[name] = _metadata_from_safe(child_node)
+    return result
+
+
 class Table:
     """
     >>> data = '''
@@ -303,8 +406,8 @@ class Table:
             else:
                 logger.info(f'Pulling column metadata from file {metadata_source}')
                 with open(metadata_source) as infile:
-                    self.columns = yaml.safe_load(infile.read())
-            for (col_name, col) in self.columns.items():
+                    self.columns = _metadata_from_safe(yaml.safe_load(infile.read()))
+            for (col_name, col) in list(self.columns.items()):
                 if isinstance(col, OrderedDict):
                     child_metadata_sources[col_name] = col
                     self.columns.pop(col_name)
@@ -352,7 +455,9 @@ class Table:
             if not save_metadata_to.endswith(('.yml', 'yaml')):
                 save_metadata_to += '.yaml'
             with open(save_metadata_to, 'w') as outfile:
-                outfile.write(yaml.dump(self._saveable_metadata()))
+                outfile.write(yaml.safe_dump(
+                    _metadata_to_safe(self._saveable_metadata()),
+                    default_flow_style=False, sort_keys=False, allow_unicode=True))
             logger.info(f'Pass ``--save-metadata-to {save_metadata_to}`` next time to re-use structure')
 
     def _saveable_metadata(self) -> OrderedDict:
