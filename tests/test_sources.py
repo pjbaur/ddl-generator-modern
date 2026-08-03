@@ -793,6 +793,54 @@ class TestSqlalchemyTableSources:
         rows = list(sources[0])
         assert [tuple(row) for row in rows] == [(1, 'a'), (2, 'b')]
 
+    def test_limit_applies_to_sqlalchemy_url_source(self, tmp_path):
+        """Regression guard: sqlalchemy_table_sources previously never
+        received limit/every_nth at all, so --limit/--every-nth were
+        silently no-ops for sqlalchemy:// URLs."""
+        db_path = tmp_path / "test.db"
+        engine = sqlalchemy.create_engine(f"sqlite:///{db_path}")
+        with engine.connect() as connection:
+            connection.execute(sqlalchemy.text("CREATE TABLE t (id INTEGER)"))
+            connection.execute(sqlalchemy.text(
+                "INSERT INTO t VALUES (1), (2), (3), (4), (5)"
+            ))
+            connection.commit()
+
+        sources = list(sqlalchemy_table_sources(f"sqlite:///{db_path}", limit=2))
+
+        assert len(list(sources[0])) == 2
+
+    def test_every_nth_applies_to_sqlalchemy_url_source(self, tmp_path):
+        """Same regression guard as test_limit_applies_to_sqlalchemy_url_source,
+        for --every-nth."""
+        db_path = tmp_path / "test.db"
+        engine = sqlalchemy.create_engine(f"sqlite:///{db_path}")
+        with engine.connect() as connection:
+            connection.execute(sqlalchemy.text("CREATE TABLE t (id INTEGER)"))
+            connection.execute(sqlalchemy.text(
+                "INSERT INTO t VALUES " + ", ".join(f"({i})" for i in range(1, 11))
+            ))
+            connection.commit()
+
+        sources = list(sqlalchemy_table_sources(f"sqlite:///{db_path}", every_nth=3))
+
+        rows = list(sources[0])
+        assert [tuple(row) for row in rows] == [(3,), (6,), (9,)]
+
+    def test_sample_k_applies_to_sqlalchemy_url_source(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        engine = sqlalchemy.create_engine(f"sqlite:///{db_path}")
+        with engine.connect() as connection:
+            connection.execute(sqlalchemy.text("CREATE TABLE t (id INTEGER)"))
+            connection.execute(sqlalchemy.text(
+                "INSERT INTO t VALUES " + ", ".join(f"({i})" for i in range(1, 21))
+            ))
+            connection.commit()
+
+        sources = list(sqlalchemy_table_sources(f"sqlite:///{db_path}", sample_k=5, seed=3))
+
+        assert len(list(sources[0])) == 5
+
     def test_raises_import_error_when_sqlalchemy_none(self):
         """Should raise ImportError if sqlalchemy is not available."""
         with patch('ddlgenerator.sources.sqlalchemy', None):

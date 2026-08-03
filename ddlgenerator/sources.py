@@ -759,7 +759,10 @@ class Source:
         return [(source.table_name, n)]
 
 
-def sqlalchemy_table_sources(url: str) -> Iterator['Source']:
+def sqlalchemy_table_sources(url: str, limit: int | None = None,
+                             every_nth: int | None = None,
+                             sample_k: int | None = None,
+                             seed: int | None = None) -> Iterator['Source']:
     """
     Yield Source objects for each table in a SQLAlchemy database.
 
@@ -767,6 +770,10 @@ def sqlalchemy_table_sources(url: str) -> Iterator['Source']:
 
     Args:
         url: SQLAlchemy database URL
+        limit: Maximum number of rows to read per table
+        every_nth: Sample every Nth row per table instead of reading all rows
+        sample_k: Reservoir-sample exactly this many rows per table
+        seed: Random seed for sample_k reproducibility
 
     Yields:
         Source objects, one per table
@@ -779,7 +786,8 @@ def sqlalchemy_table_sources(url: str) -> Iterator['Source']:
     meta.reflect(bind=engine)
 
     for table in meta.sorted_tables:
-        yield Source(meta, table=table.name, engine=engine)
+        yield Source(meta, table=table.name, engine=engine, limit=limit,
+                     every_nth=every_nth, sample_k=sample_k, seed=seed)
 
 
 def count_sqlalchemy_tables(url: str, table: str = '*') -> list:
