@@ -130,11 +130,15 @@ isn't mistaken for an oversight later.
   the existing "Max number of rows to read from each source file" semantics
   `--limit`/`--every-nth` already document. Every subsource receives the
   same `seed` value (unchanged, same as `limit`/`every_nth` are copied
-  unchanged); this does not make their samples identical to each other,
-  since each subsource's Algorithm R draws against different underlying
-  row content — it only makes the *sequence of random decisions*
-  reproducible per subsource, which is the same reproducibility guarantee
-  `--seed` provides for a single source.
+  unchanged). Algorithm R's swap decisions depend only on a row's
+  positional index and the RNG stream, never on row content — so two
+  same-length subsources given the same seed will select the *same
+  positional indices* from each, regardless of what data occupies those
+  positions. If the data has positional structure (e.g. files sorted by
+  region, or appended chronologically with correlated positions), this can
+  yield correlated rather than independent samples across files. This only
+  happens when a user explicitly passes `--seed`; without it, each `Source`
+  gets `random.Random(None)` (OS entropy) and samples are independent.
 
 ### `ddlgenerator/ddlgenerator.py` — `Table`
 

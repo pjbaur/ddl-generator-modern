@@ -118,11 +118,14 @@ Options
     know the source's total row count upfront. Cannot be combined with
     ``--limit`` or ``--every-nth``. Applies K independently per matched
     file when a source expands to multiple files (glob patterns) or
-    multiple sheets/tables (xlsx, HTML).
+    multiple sheets (.xls/.xlsx).
 
 ``--seed``
     Random seed for ``--sample-k`` reproducibility. Optional; omit for an
-    unseeded (non-reproducible) sample. Requires ``--sample-k``.
+    unseeded (non-reproducible) sample. Requires ``--sample-k``. When
+    sampling multiple same-length files/sheets with the same seed, each
+    receives the same sampled positions -- omit ``--seed`` for independent
+    samples across files.
 
 ``-c``, ``--cushion``
     Extra length to pad column sizes
