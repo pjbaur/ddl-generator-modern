@@ -35,6 +35,10 @@ parser.add_argument('--count-only', action='store_true',
 parser.add_argument('--limit', type=int, default=None, help='Max number of rows to read from each source file')
 parser.add_argument('--every-nth', type=int, default=None,
                     help='Sample every Nth row instead of reading all rows')
+parser.add_argument('--sample-k', type=int, default=None,
+                    help='Randomly sample exactly K rows per source (reservoir sampling)')
+parser.add_argument('--seed', type=int, default=None,
+                    help='Random seed for --sample-k reproducibility')
 parser.add_argument('-c', '--cushion', type=int, default=0, help='Extra length to pad column sizes with')
 parser.add_argument('--save-metadata-to', type=str, metavar='FILENAME',
                     help='Save table definition in FILENAME for later --use-saved-metadata run')
@@ -128,6 +132,12 @@ def generate(args: str | list[str] | None = None,
     logging.info(str(parsed))
     if parsed.every_nth is not None and parsed.every_nth < 1:
         raise ValueError(f"--every-nth must be a positive integer, got {parsed.every_nth}")
+    if parsed.sample_k is not None and parsed.sample_k < 1:
+        raise ValueError(f"--sample-k must be a positive integer, got {parsed.sample_k}")
+    if parsed.sample_k is not None and (parsed.limit is not None or parsed.every_nth is not None):
+        raise ValueError("--sample-k cannot be combined with --limit or --every-nth")
+    if parsed.seed is not None and parsed.sample_k is None:
+        raise ValueError("--seed requires --sample-k")
     if parsed.count_only:
         run_count_only(parsed, file=file)
         return

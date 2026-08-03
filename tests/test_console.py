@@ -195,6 +195,38 @@ class TestEveryNthValidation:
             generate(f"--every-nth -3 postgresql {data_file}")
 
 
+class TestSampleKValidation:
+    def test_sample_k_zero_raises(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}]')
+        with pytest.raises(ValueError, match="--sample-k must be a positive integer"):
+            generate(f"--sample-k 0 postgresql {data_file}")
+
+    def test_sample_k_negative_raises(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}]')
+        with pytest.raises(ValueError, match="--sample-k must be a positive integer"):
+            generate(f"--sample-k -3 postgresql {data_file}")
+
+    def test_sample_k_combined_with_limit_raises(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}]')
+        with pytest.raises(ValueError, match="--sample-k cannot be combined with --limit or --every-nth"):
+            generate(f"--sample-k 1 --limit 1 postgresql {data_file}")
+
+    def test_sample_k_combined_with_every_nth_raises(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}]')
+        with pytest.raises(ValueError, match="--sample-k cannot be combined with --limit or --every-nth"):
+            generate(f"--sample-k 1 --every-nth 1 postgresql {data_file}")
+
+    def test_seed_without_sample_k_raises(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}]')
+        with pytest.raises(ValueError, match="--seed requires --sample-k"):
+            generate(f"--seed 42 postgresql {data_file}")
+
+
 class TestCountOnly:
     def test_count_only_prints_total_and_skips_ddl(self, tmp_path):
         data_file = tmp_path / "data.json"
