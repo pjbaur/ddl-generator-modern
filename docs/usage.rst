@@ -112,6 +112,18 @@ Options
     keeps rows 3, 6, 9, ...). Combines with ``--limit`` by striding first,
     then capping the surviving rows.
 
+``--sample-k``
+    Reservoir-sample exactly K rows per source (Algorithm R) instead of
+    reading all rows. Gives an unbiased random sample without needing to
+    know the source's total row count upfront. Cannot be combined with
+    ``--limit`` or ``--every-nth``. Applies K independently per matched
+    file when a source expands to multiple files (glob patterns) or
+    multiple sheets/tables (xlsx, HTML).
+
+``--seed``
+    Random seed for ``--sample-k`` reproducibility. Optional; omit for an
+    unseeded (non-reproducible) sample. Requires ``--sample-k``.
+
 ``-c``, ``--cushion``
     Extra length to pad column sizes
 
