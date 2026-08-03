@@ -202,6 +202,19 @@ class TestSqlCombined:
 
 
 # ---------------------------------------------------------------------------
+# sample_k / seed passthrough
+# ---------------------------------------------------------------------------
+class TestSampleKWiring:
+    def test_sample_k_reduces_row_count(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(1, 51)) + ']'
+        )
+        tbl = Table(str(data_file), sample_k=5, seed=42)
+        assert len(tbl.data) == 5
+
+
+# ---------------------------------------------------------------------------
 # _validate_data_source
 # ---------------------------------------------------------------------------
 class TestValidateDataSource:
