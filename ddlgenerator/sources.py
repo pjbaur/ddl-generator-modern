@@ -341,7 +341,7 @@ class Source:
 
     def __init__(self, src: Any, limit: int | None = None,
                  fieldnames: Any = None, table: str = '*',
-                 every_nth: int | None = None) -> None:
+                 every_nth: int | None = None, engine: Any = None) -> None:
         """
         Initialize a data source.
 
@@ -351,6 +351,9 @@ class Source:
             fieldnames: For CSV, override header row
             table: For Excel/SQLAlchemy, specific table/sheet name
             every_nth: Sample every Nth row instead of reading all rows
+            engine: SQLAlchemy engine to query against, required when src is
+                a MetaData object (SA 2.x MetaData carries no engine of its
+                own -- there is no ``meta.bind`` to fall back on)
         """
         self.counter = 0
         self.limit = limit
@@ -368,7 +371,7 @@ class Source:
 
         # SQLAlchemy MetaData
         if sqlalchemy and isinstance(src, sqlalchemy.sql.schema.MetaData):
-            self._source_is_sqlalchemy_metadata(src, table)
+            self._source_is_sqlalchemy_metadata(src, table, engine)
             return
 
         # MongoDB Collection
@@ -434,10 +437,19 @@ class Source:
         self.table_name = src.name
         self.generator = src.find()
 
-    def _source_is_sqlalchemy_metadata(self, meta: Any, table: str) -> None:
-        """Handle SQLAlchemy MetaData sources using SA 2.x API."""
-        self.db_engine = meta.bind
-        connection = meta.bind.connect()
+    def _source_is_sqlalchemy_metadata(self, meta: Any, table: str, engine: Any = None) -> None:
+        """Handle SQLAlchemy MetaData sources using SA 2.x API.
+
+        SA 2.x MetaData has no ``.bind`` (that was removed after 1.x), so the
+        engine to query against must be passed in explicitly.
+        """
+        if engine is None:
+            raise ValueError(
+                "Source(metadata, ...) requires engine= -- SQLAlchemy 2.x "
+                "MetaData no longer carries a bound engine"
+            )
+        self.db_engine = engine
+        connection = engine.connect()
         slct = sqlalchemy.sql.select(meta.tables[table])
         result = connection.execute(slct)
         self.generator = NamedIter(iter(result), name=table)
@@ -732,7 +744,7 @@ def sqlalchemy_table_sources(url: str) -> Iterator['Source']:
     meta.reflect(bind=engine)
 
     for table in meta.sorted_tables:
-        yield Source(meta, table=table.name)
+        yield Source(meta, table=table.name, engine=engine)
 
 
 def count_sqlalchemy_tables(url: str, table: str = '*') -> list:

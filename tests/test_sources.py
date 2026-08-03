@@ -699,6 +699,25 @@ class TestSqlalchemyTableSources:
         mock_create_engine.assert_called_once_with("sqlite:///test.db")
         mock_meta_inst.reflect.assert_called_once()
 
+    def test_reads_rows_from_a_real_engine(self, tmp_path):
+        """Regression guard: sqlalchemy.MetaData() has no .bind attribute
+        under SQLAlchemy 2.x, so Source._source_is_sqlalchemy_metadata must
+        be given the engine explicitly rather than reading meta.bind. The
+        mocked test above never exercises real Source construction, so it
+        can't catch this -- this test must hit a real engine/connection."""
+        db_path = tmp_path / "test.db"
+        engine = sqlalchemy.create_engine(f"sqlite:///{db_path}")
+        with engine.connect() as connection:
+            connection.execute(sqlalchemy.text("CREATE TABLE t (id INTEGER, name TEXT)"))
+            connection.execute(sqlalchemy.text("INSERT INTO t VALUES (1, 'a'), (2, 'b')"))
+            connection.commit()
+
+        sources = list(sqlalchemy_table_sources(f"sqlite:///{db_path}"))
+
+        assert len(sources) == 1
+        rows = list(sources[0])
+        assert [tuple(row) for row in rows] == [(1, 'a'), (2, 'b')]
+
     def test_raises_import_error_when_sqlalchemy_none(self):
         """Should raise ImportError if sqlalchemy is not available."""
         with patch('ddlgenerator.sources.sqlalchemy', None):
