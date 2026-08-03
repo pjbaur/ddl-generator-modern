@@ -117,6 +117,24 @@ isn't mistaken for an oversight later.
   - `self.counter` (used by `limit`) is not incremented on this path —
     `sample_k` and `limit` are mutually exclusive, so `self.counter`'s only
     consumer never runs concurrently with this branch.
+- `_multiple_sources` (used for glob matches, multi-sheet xlsx, and
+  multi-table HTML — the same method backs all three call sites) already
+  forwards `limit`/`every_nth` to each subsource and clears them on the
+  parent (`self.limit = None`, `self.every_nth = None`) so the parent's own
+  `__next__` doesn't double-apply them once the subsources are chained.
+  `sample_k`/`seed` must follow the same pattern: `Source(s, limit=self.limit,
+  every_nth=self.every_nth, sample_k=self.sample_k, seed=self.seed)` for
+  each subsource, then `self.sample_k = None` on the parent. This means
+  `--sample-k K` reservoir-samples K rows from *each* matched file/sheet
+  independently, not K rows total across all of them combined — matching
+  the existing "Max number of rows to read from each source file" semantics
+  `--limit`/`--every-nth` already document. Every subsource receives the
+  same `seed` value (unchanged, same as `limit`/`every_nth` are copied
+  unchanged); this does not make their samples identical to each other,
+  since each subsource's Algorithm R draws against different underlying
+  row content — it only makes the *sequence of random decisions*
+  reproducible per subsource, which is the same reproducibility guarantee
+  `--seed` provides for a single source.
 
 ### `ddlgenerator/ddlgenerator.py` — `Table`
 
@@ -219,6 +237,9 @@ existing `TestSourceEveryNth`):
 - `sample_k` combined with `every_nth` raises `ValueError`
 - output preserves original relative source order
 - empty source yields nothing
+- glob match with `sample_k` set: each matched file is sampled to K rows
+  independently (not K total across all matches), mirroring the equivalent
+  existing `TestSourceCount.test_counts_glob_per_file`-style setup
 
 `tests/test_console.py`:
 - `TestSampleKValidation` (mirrors `TestEveryNthValidation`): CLI-level
