@@ -638,6 +638,12 @@ class TestSourceSampleK:
         result = list(src)
         assert [r["id"] for r in result] == [1, 2, 3, 4, 5]
 
+    def test_sample_k_keeps_all_rows_when_n_equals_k(self):
+        data = [{"id": i} for i in range(1, 11)]  # 10 rows
+        src = Source(iter(data), sample_k=10, seed=1)
+        result = list(src)
+        assert [r["id"] for r in result] == list(range(1, 11))
+
     def test_sample_k_preserves_original_relative_order(self):
         data = [{"id": i} for i in range(1, 51)]
         src = Source(iter(data), sample_k=5, seed=7)
