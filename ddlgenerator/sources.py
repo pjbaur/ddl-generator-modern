@@ -326,12 +326,20 @@ class Source:
         db_engine: SQLAlchemy engine if source is a database
         limit: Maximum rows to yield
         every_nth: Sample every Nth row instead of yielding every row
+        sample_k: Reservoir-sample exactly this many rows instead of
+            yielding every row
+        seed: Random seed for sample_k reproducibility
 
     ``every_nth`` selects raw 1-indexed rows N, 2N, 3N, ... from the
     underlying stream (0-indexed ``% N == N-1``) -- e.g. every_nth=3 over
     rows 1..9 keeps rows 3, 6, 9, not 1, 4, 7. every_nth=1 yields every row.
     When combined with ``limit``, striding is applied first and ``limit``
     caps the count of surviving (already-strided) rows.
+
+    ``sample_k`` reservoir-samples exactly K rows via Algorithm R, yielded
+    in their original relative order. Unlike ``limit``/``every_nth``, it
+    requires no upfront knowledge of the source's total row count and
+    cannot be combined with either.
     """
 
     table_count = 0
@@ -652,6 +660,7 @@ class Source:
         self.limit = None  # limit already applied to subsources
         self.every_nth = None  # stride already applied to subsources
         self.sample_k = None  # reservoir sampling already applied to subsources
+        self.seed = None  # seed already applied to subsources
         self.generator = itertools.chain.from_iterable(subsources)
 
     def __iter__(self) -> 'Source':
@@ -712,8 +721,9 @@ class Source:
         available (MongoDB, xlsx) and falling back to constructing a real
         Source and consuming its generator otherwise (CSV/JSON/YAML/HTML/
         .xls/generators -- these formats have no way to count without a
-        full read/parse). Always reports the true total; ignores limit/
-        every_nth entirely (this is a survey helper, not a sampled read).
+        full read/parse). Always reports the true total; ignores
+        limit/every_nth/sample_k/seed entirely (this is a survey helper,
+        not a sampled read).
 
         Kept as a separate dispatch from __init__'s _source_is_* tree rather
         than threading a count-only flag through it: the xlsx optimization
