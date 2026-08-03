@@ -69,7 +69,8 @@ def generate_one(tbl: Any, args: argparse.Namespace,
     table = Table(tbl, table_name=table_name, varying_length_text=args.text, uniques=args.uniques,
                   pk_name=args.key, force_pk=args.force_key, reorder=args.reorder, data_size_cushion=args.cushion,
                   save_metadata_to=args.save_metadata_to, metadata_source=args.use_metadata_from,
-                  loglevel=args.log, limit=args.limit, every_nth=args.every_nth)
+                  loglevel=args.log, limit=args.limit, every_nth=args.every_nth,
+                  sample_k=args.sample_k, seed=args.seed)
     if args.dialect.startswith('sqla'):
         if not args.no_creates:
             print(table.sqlalchemy(), file=file)
@@ -88,10 +89,11 @@ def run_count_only(args: argparse.Namespace, file: IO[str] | None = None) -> Non
     """
     Report row counts per source and exit without generating DDL/INSERTs.
 
-    Always reports the true total record count, ignoring --limit/--every-nth
-    (this mode exists to help pick a sampling value for a subsequent run).
-    xlsx, SQLAlchemy, and MongoDB sources use a cheap count; CSV/JSON/YAML/
-    HTML/xls and generator sources must be fully read to count them.
+    Always reports the true total record count, ignoring --limit/--every-nth/
+    --sample-k/--seed (this mode exists to help pick a sampling value for a
+    subsequent run). xlsx, SQLAlchemy, and MongoDB sources use a cheap count;
+    CSV/JSON/YAML/HTML/xls and generator sources must be fully read to count
+    them.
     """
     logging.info(
         "--count-only: xlsx, SQLAlchemy, and MongoDB sources use a cheap count; "
@@ -156,7 +158,10 @@ def generate(args: str | list[str] | None = None,
         if is_sqlalchemy_url.search(datafile):
             table_names_for_insert = []
             t = None
-            for tbl in sqlalchemy_table_sources(datafile):
+            for tbl in sqlalchemy_table_sources(datafile, limit=parsed.limit,
+                                                every_nth=parsed.every_nth,
+                                                sample_k=parsed.sample_k,
+                                                seed=parsed.seed):
                 t = generate_one(tbl, parsed, table_name=tbl.generator.name, file=file)
                 if t.data:
                     table_names_for_insert.append(tbl.generator.name)

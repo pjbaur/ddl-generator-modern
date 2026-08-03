@@ -251,6 +251,39 @@ class TestCountOnly:
             generate(f"postgresql {bad} --count-only")
 
 
+class TestSampleKGeneration:
+    def test_sample_k_reduces_insert_count(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(1, 51)) + ']'
+        )
+        out = io.StringIO()
+        generate(f"--sample-k 5 --seed 1 -i postgresql {data_file}", file=out)
+        output = out.getvalue()
+        assert output.count("INSERT INTO") == 5
+
+    def test_count_only_ignores_sample_k(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}, {"id": 2}, {"id": 3}]')
+        out = io.StringIO()
+        generate(f"--sample-k 1 postgresql {data_file} --count-only", file=out)
+        assert "TOTAL: 3" in out.getvalue()
+
+    def test_sample_k_applies_to_sqlalchemy_url(self, tmp_path):
+        import sqlalchemy as sa
+        db_path = tmp_path / "test.db"
+        engine = sa.create_engine(f"sqlite:///{db_path}")
+        with engine.connect() as connection:
+            connection.execute(sa.text("CREATE TABLE t (id INTEGER)"))
+            connection.execute(sa.text(
+                "INSERT INTO t VALUES " + ", ".join(f"({i})" for i in range(1, 21))
+            ))
+            connection.commit()
+        out = io.StringIO()
+        generate(f"--sample-k 5 --seed 1 -i postgresql sqlite:///{db_path}", file=out)
+        assert out.getvalue().count("INSERT INTO") == 5
+
+
 # ---------------------------------------------------------------------------
 # SQLAlchemy URL input path
 # ---------------------------------------------------------------------------
