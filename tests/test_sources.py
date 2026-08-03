@@ -430,6 +430,26 @@ class TestSourceExcel:
         assert not isinstance(exc_info.value, RecursionError)
 
 
+@pytest.mark.skipif(openpyxl is None, reason="openpyxl not installed")
+class TestSourceLocalXlsx:
+    def test_local_xlsx_path_is_readable(self, tmp_path):
+        """A local .xlsx path used to fall through to the generic path
+        loader (whose deserializer table has no .xlsx entry) because the
+        file-path dispatch only special-cased '.xls', not '.xlsx'. Only
+        URL-fetched .xlsx worked. Regression test for that dispatch gap."""
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["id", "name"])
+        sheet.append([1, "alice"])
+        sheet.append([2, "bob"])
+        path = tmp_path / "data.xlsx"
+        workbook.save(path)
+
+        rows = list(Source(str(path)))
+        assert len(rows) == 2
+        assert rows[0]["name"] == "alice"
+
+
 class TestSourceSelfMatchingGlob:
     def test_directory_source_does_not_recurse(self, tmp_path):
         """glob() matches a directory by its own name; expanding that as a

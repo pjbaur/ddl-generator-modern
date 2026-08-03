@@ -311,7 +311,7 @@ class Source:
             print(row)
 
     Supported sources:
-    - File paths: .csv, .json, .yaml, .yml, .html, .htm, .xls
+    - File paths: .csv, .json, .yaml, .yml, .html, .htm, .xls, .xlsx
     - URLs: http:// and https:// (with SSRF protection)
     - File-like objects with .read() method
     - SQLAlchemy MetaData objects
@@ -397,7 +397,7 @@ class Source:
         except (TypeError, ValueError):
             src_is_file = False
         if src_is_file:
-            if src.lower().endswith('.xls'):
+            if src.lower().endswith(('.xls', '.xlsx')):
                 self._source_is_excel(src, sheet=table)
             else:
                 self._source_is_path(src)
