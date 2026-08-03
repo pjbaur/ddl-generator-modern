@@ -619,6 +619,41 @@ class TestSourceSampleKValidation:
             Source(iter([{"id": 1}]), sample_k=1, every_nth=1)
 
 
+class TestSourceSampleK:
+    def test_sample_k_returns_exactly_k_rows_when_n_greater_than_k(self):
+        data = [{"id": i} for i in range(1, 101)]  # ids 1..100
+        src = Source(iter(data), sample_k=10, seed=42)
+        result = list(src)
+        assert len(result) == 10
+
+    def test_sample_k_is_deterministic_with_same_seed(self):
+        data = [{"id": i} for i in range(1, 101)]
+        result_a = list(Source(iter(data), sample_k=10, seed=42))
+        result_b = list(Source(iter(data), sample_k=10, seed=42))
+        assert [r["id"] for r in result_a] == [r["id"] for r in result_b]
+
+    def test_sample_k_keeps_all_rows_when_n_less_than_k(self):
+        data = [{"id": i} for i in range(1, 6)]  # 5 rows
+        src = Source(iter(data), sample_k=10, seed=1)
+        result = list(src)
+        assert [r["id"] for r in result] == [1, 2, 3, 4, 5]
+
+    def test_sample_k_preserves_original_relative_order(self):
+        data = [{"id": i} for i in range(1, 51)]
+        src = Source(iter(data), sample_k=5, seed=7)
+        result = [r["id"] for r in list(src)]
+        assert result == sorted(result)
+
+    def test_sample_k_on_empty_source_yields_nothing(self):
+        src = Source(iter([]), sample_k=3, seed=1)
+        assert list(src) == []
+
+    def test_sample_k_without_seed_still_returns_k_rows(self):
+        data = [{"id": i} for i in range(1, 21)]
+        src = Source(iter(data), sample_k=4)
+        assert len(list(src)) == 4
+
+
 # ---------------------------------------------------------------------------
 # Source.count
 # ---------------------------------------------------------------------------

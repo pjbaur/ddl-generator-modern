@@ -656,6 +656,24 @@ class Source:
         return self
 
     def __next__(self) -> Any:
+        if self.sample_k is not None:
+            if self._reservoir is None:
+                reservoir: list[tuple[int, Any]] = []
+                for i, row in enumerate(self.generator):
+                    if i < self.sample_k:
+                        reservoir.append((i, row))
+                    else:
+                        j = self._rng.randint(0, i)
+                        if j < self.sample_k:
+                            reservoir[j] = (i, row)
+                reservoir.sort(key=lambda pair: pair[0])
+                self._reservoir = [row for (_i, row) in reservoir]
+                self._reservoir_pos = 0
+            if self._reservoir_pos >= len(self._reservoir):
+                raise StopIteration
+            row = self._reservoir[self._reservoir_pos]
+            self._reservoir_pos += 1
+            return row
         self.counter += 1
         if self.limit and (self.counter > self.limit):
             raise StopIteration
