@@ -1,0 +1,1218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DDL Generator — User Guide</title>
+<meta name="description" content="Infers SQL DDL (CREATE TABLE statements) from table data. A complete, example-driven guide.">
+<style>
+  :root{
+    --bg:#f6f7fb;
+    --surface:#ffffff;
+    --ink:#1e2433;
+    --ink-soft:#51607a;
+    --ink-faint:#8593a8;
+    --line:#e6e9f2;
+    --brand:#6d5efc;
+    --brand-2:#9b5cf6;
+    --brand-3:#ec4899;
+    --hero-grad:linear-gradient(135deg,#4f46e5 0%,#7c3aed 45%,#db2777 100%);
+
+    --code-bg:#0f1424;
+    --code-ink:#e7ecf5;
+    --code-dim:#8b95ad;
+    --code-bar:#161d33;
+
+    --tip:#059669; --tip-bg:#ecfdf5; --tip-bd:#a7f3d0;
+    --note:#2563eb; --note-bg:#eff6ff; --note-bd:#bfdbfe;
+    --warn:#d97706; --warn-bg:#fffbeb; --warn-bd:#fde68a;
+    --danger:#e11d48; --danger-bg:#fff1f2; --danger-bd:#fecdd3;
+
+    --pg: VARCHAR(--pgw);
+    --pgw: 1080px;
+    --radius:14px;
+    --shadow:0 10px 30px -12px rgba(31,41,73,.18);
+    --shadow-sm:0 2px 8px -2px rgba(31,41,73,.12);
+  }
+
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth; scroll-padding-top:84px}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--brand); text-decoration:none}
+  a:hover{text-decoration:underline}
+
+  /* ---------- Top bar ---------- */
+  .topbar{
+    position:sticky; top:0; z-index:50;
+    background:rgba(255,255,255,.82);
+    backdrop-filter:saturate(180%) blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .topbar__row{
+    max-width:var(--pgw); margin:0 auto; padding:10px 24px;
+    display:flex; align-items:center; gap:14px;
+  }
+  .brand{display:flex; align-items:center; gap:10px; font-weight:700; color:var(--ink)}
+  .brand__mark{
+    width:30px; height:30px; border-radius:8px; background:var(--hero-grad);
+    display:grid; place-items:center; color:#fff; box-shadow:var(--shadow-sm);
+  }
+  .brand__mark svg{width:18px;height:18px}
+  .brand small{color:var(--ink-faint); font-weight:500; font-size:12px}
+  .topbar__spacer{flex:1}
+  .topbar__links{display:flex; gap:4px; flex-wrap:wrap}
+  .topbar__links a{
+    color:var(--ink-soft); font-size:14px; font-weight:500;
+    padding:6px 10px; border-radius:8px;
+  }
+  .topbar__links a:hover{background:#eef0f7; color:var(--ink); text-decoration:none}
+  .menu-btn{display:none; background:none; border:1px solid var(--line); border-radius:8px; padding:6px 10px; cursor:pointer}
+
+  /* ---------- Hero ---------- */
+  .hero{
+    background:var(--hero-grad);
+    position:relative; overflow:hidden;
+    color:#fff;
+  }
+  .hero::after{
+    content:""; position:absolute; inset:0;
+    background-image:radial-gradient(circle at 20% 20%, rgba(255,255,255,.18), transparent 40%),
+                     radial-gradient(circle at 85% 30%, rgba(255,255,255,.12), transparent 35%);
+    pointer-events:none;
+  }
+  .hero__inner{
+    max-width:var(--pgw); margin:0 auto; padding:62px 24px 70px; position:relative; z-index:1;
+  }
+  .hero__eyebrow{
+    display:inline-block; font-size:13px; font-weight:600; letter-spacing:.08em; text-transform:uppercase;
+    background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.25);
+    padding:5px 12px; border-radius:999px; margin-bottom:18px;
+  }
+  .hero h1{font-size:clamp(34px,5vw,54px); line-height:1.05; margin:0 0 14px; letter-spacing:-.02em; font-weight:800}
+  .hero__lead{font-size:clamp(17px,2vw,21px); max-width:680px; color:rgba(255,255,255,.92); margin:0 0 26px}
+  .chips{display:flex; flex-wrap:wrap; gap:10px; margin-bottom:26px}
+  .chip{
+    font:600 13px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.28);
+    padding:7px 12px; border-radius:8px; backdrop-filter:blur(4px);
+  }
+  .hero__install{
+    display:flex; align-items:center; gap:10px; max-width:560px;
+    background:rgba(15,20,36,.55); border:1px solid rgba(255,255,255,.18);
+    border-radius:12px; padding:12px 14px;
+    font:14px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; color:#e7ecf5;
+  }
+  .hero__install span{color:#9ca8c9}
+  .hero__install code{color:#fff; font-weight:600}
+
+  /* ---------- Layout ---------- */
+  .layout{max-width:var(--pgw); margin:0 auto; padding:40px 24px 80px; display:grid; grid-template-columns:240px 1fr; gap:42px}
+  .toc{
+    position:sticky; top:84px; align-self:start; max-height:calc(100vh - 100px); overflow:auto;
+    font-size:14px;
+  }
+  .toc h4{font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-faint); margin:18px 0 8px}
+  .toc h4:first-child{margin-top:0}
+  .toc a{display:block; color:var(--ink-soft); padding:4px 0 4px 12px; border-left:2px solid transparent}
+  .toc a:hover{color:var(--brand); text-decoration:none}
+  .toc a.active{color:var(--brand); border-left-color:var(--brand); font-weight:600}
+
+  .content section{padding:26px 0; border-top:1px solid var(--line)}
+  .content section:first-child{border-top:0; padding-top:6px}
+  .content h2{font-size:27px; margin:0 0 6px; letter-spacing:-.01em; display:flex; align-items:center; gap:10px}
+  .content h2 .num{
+    font:800 14px/1 ui-monospace,Menlo,Consolas,monospace; color:#fff;
+    background:var(--hero-grad); width:30px; height:30px; border-radius:8px; display:grid; place-items:center;
+  }
+  .content h3{font-size:19px; margin:28px 0 8px}
+  .content p{margin:12px 0}
+  .content ul,.content ol{margin:12px 0; padding-left:22px}
+  .content li{margin:6px 0}
+  .lead{color:var(--ink-soft); font-size:17px}
+
+  /* ---------- Code blocks ---------- */
+  .code{
+    margin:16px 0; border-radius:12px; overflow:hidden; box-shadow:var(--shadow-sm);
+    border:1px solid #1b2238;
+  }
+  .code__bar{
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--code-bar); padding:7px 10px 7px 14px;
+  }
+  .code__lang{
+    font:600 12px/1 ui-monospace,Menlo,Consolas,monospace; color:var(--code-dim);
+    letter-spacing:.04em; text-transform:uppercase;
+  }
+  .code__bar .dots{display:flex; gap:6px; margin-right:auto; padding-right:12px}
+  .code__bar .dots i{width:11px;height:11px;border-radius:50%; display:block}
+  .dots i:nth-child(1){background:#ff5f57}.dots i:nth-child(2){background:#febc2e}.dots i:nth-child(3){background:#28c840}
+  .copy{
+    background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.16);
+    color:var(--code-dim); font:600 11px/1 ui-monospace,Menlo,Consolas,monospace;
+    padding:4px 9px; border-radius:6px; cursor:pointer; letter-spacing:.04em; text-transform:uppercase;
+    transition:.15s;
+  }
+  .copy:hover{background:rgba(255,255,255,.16); color:#fff}
+  .copy.done{color:#28c840; border-color:#28c840}
+  .code pre{margin:0; background:var(--code-bg); padding:16px 18px; overflow:auto}
+  .code code, code.inline{
+    font:14px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    color:var(--code-ink); tab-size:2;
+  }
+  code.inline{background:#eef0f8; color:#5b3fc7; padding:2px 6px; border-radius:5px; font-size:.88em}
+
+  .kv{color:#9b8cff}            /* soft keyword */
+  .str{color:#7ee787}           /* string */
+  .num{color:#f0a36b}           /* number */
+  .com{color:#6b7794; font-style:italic} /* comment */
+
+  /* ---------- Callouts ---------- */
+  .callout{margin:18px 0; border-radius:12px; padding:14px 16px 14px 18px; border:1px solid; border-left-width:4px; font-size:15px}
+  .callout strong{display:block; margin-bottom:3px}
+  .callout p:last-child{margin-bottom:0}
+  .callout.tip{background:var(--tip-bg); border-color:var(--tip-bd); color:#065f46}
+  .callout.tip strong{color:var(--tip)}
+  .callout.note{background:var(--note-bg); border-color:var(--note-bd); color:#1e3a8a}
+  .callout.note strong{color:var(--note)}
+  .callout.warn{background:var(--warn-bg); border-color:var(--warn-bd); color:#92400e}
+  .callout.warn strong{color:var(--warn)}
+  .callout.danger{background:var(--danger-bg); border-color:var(--danger-bd); color:#9f1239}
+  .callout.danger strong{color:var(--danger)}
+
+  /* ---------- Cards / grids ---------- */
+  .grid{display:grid; gap:14px; margin:18px 0}
+  .grid.cols-2{grid-template-columns:repeat(2,1fr)}
+  .grid.cols-3{grid-template-columns:repeat(3,1fr)}
+  .card{
+    background:var(--surface); border:1px solid var(--line); border-radius:12px;
+    padding:16px 18px; box-shadow:var(--shadow-sm);
+  }
+  .card h4{margin:0 0 4px; font-size:16px; display:flex; align-items:center; gap:8px}
+  .card p{margin:0; color:var(--ink-soft); font-size:14.5px}
+  .tag{font:600 12px/1 ui-monospace,Menlo,Consolas,monospace; padding:3px 8px; border-radius:6px; color:#fff}
+  .tag.pg{background:#336791}.tag.mysql{background:#e08e0b}.tag.sqlite{background:#0d9488}
+  .tag.oracle{background:#c74634}.tag.mssql{background:#cc2927}.tag.sqla{background:#b0202f}
+  .tag.django{background:#0c4b33}.tag.fmt{background:#5b3fc7}
+
+  /* option table */
+  table.opts{width:100%; border-collapse:collapse; margin:16px 0; font-size:14.5px; background:var(--surface); border-radius:12px; overflow:hidden; box-shadow:var(--shadow-sm)}
+  table.opts th,table.opts td{padding:11px 14px; text-align:left; border-bottom:1px solid var(--line); vertical-align:top}
+  table.opts th{background:#f3f4fb; font-size:12px; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-faint)}
+  table.opts tr:last-child td{border-bottom:0}
+  table.opts code{font:13px/1 ui-monospace,Menlo,Consolas,monospace; color:#5b3fc7; background:#eef0f8; padding:2px 6px; border-radius:5px; white-space:nowrap}
+  table.opts td:first-child{white-space:nowrap}
+
+  .keys{display:flex; gap:8px; flex-wrap:wrap; margin:14px 0}
+  .kbd{font:600 13px ui-monospace,Menlo,Consolas,monospace; background:#0f1424; color:#e7ecf5; padding:5px 10px; border-radius:7px; border:1px solid #1b2238}
+
+  hr.soft{border:0; border-top:1px solid var(--line); margin:30px 0}
+
+  footer{max-width:var(--pgw); margin:0 auto; padding:24px; color:var(--ink-faint); font-size:13.5px; border-top:1px solid var(--line)}
+
+  .totop{
+    position:fixed; right:22px; bottom:22px; z-index:60;
+    background:var(--hero-grad); color:#fff; border:0; width:44px; height:44px; border-radius:12px;
+    cursor:pointer; box-shadow:var(--shadow); opacity:0; transform:translateY(10px); transition:.25s; pointer-events:none;
+  }
+  .totop.show{opacity:1; transform:none; pointer-events:auto}
+
+  @media (max-width:900px){
+    :root{--pgw:100%}
+    .layout{grid-template-columns:1fr; gap:0; padding-top:24px}
+    .toc{display:none}
+    .menu-btn{display:inline-block}
+    .topbar__links{display:none}
+    body.nav-open .topbar__links{display:flex; flex-direction:column; padding:8px 0 4px; border-top:1px solid var(--line)}
+    body.nav-open .topbar__links a{padding:8px 14px}
+    .grid.cols-3{grid-template-columns:1fr}
+    .grid.cols-2{grid-template-columns:1fr}
+  }
+  @media print{
+    .topbar,.toc,.totop,.menu-btn{display:none}
+    .layout{display:block}
+    .hero{box-shadow:none}
+    .code{break-inside:avoid}
+    body{background:#fff}
+  }
+</style>
+</head>
+<body>
+
+<!-- ================= TOP BAR ================= -->
+<header class="topbar">
+  <div class="topbar__row">
+    <div class="brand">
+      <span class="brand__mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+      </span>
+      <span>DDL Generator <small>· User Guide</small></span>
+    </div>
+    <span class="topbar__spacer"></span>
+    <button class="menu-btn" id="menuBtn" aria-label="Toggle navigation">☰ Menu</button>
+    <nav class="topbar__links">
+      <a href="#quickstart">Quickstart</a>
+      <a href="#formats">Formats</a>
+      <a href="#dialects">Dialects</a>
+      <a href="#concepts">How it thinks</a>
+      <a href="#cli">CLI</a>
+      <a href="#nested">Nested data</a>
+      <a href="#python-api">Python API</a>
+      <a href="#security">Security</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ================= HERO ================= -->
+<section class="hero">
+  <div class="hero__inner">
+    <span class="hero__eyebrow">User Guide · v0.2.1</span>
+    <h1>Turn any table data<br>into SQL, instantly.</h1>
+    <p class="hero__lead">
+      DDL Generator reads your data — JSON, YAML, CSV, Excel, HTML, even a MongoDB
+      query — infers the most specific column type that fits every value, and writes
+      ready-to-run <code style="color:#fff;background:rgba(255,255,255,.14);padding:1px 6px;border-radius:5px">CREATE TABLE</code>
+      (and optional <code style="color:#fff;background:rgba(255,255,255,.14);padding:1px 6px;border-radius:5px">INSERT</code>) statements for the dialect of your choice.
+    </p>
+    <div class="chips">
+      <span class="chip">postgresql</span>
+      <span class="chip">mysql</span>
+      <span class="chip">sqlite</span>
+      <span class="chip">oracle</span>
+      <span class="chip">mssql</span>
+      <span class="chip">sqlalchemy</span>
+      <span class="chip">django</span>
+    </div>
+    <div class="hero__install">
+      <span>$</span>
+      <code>pip install ddl-generator</code>
+    </div>
+  </div>
+</section>
+
+<!-- ================= BODY ================= -->
+<div class="layout">
+
+  <!-- ---------- TOC ---------- -->
+  <aside class="toc" id="toc">
+    <h4>Start</h4>
+    <a href="#quickstart">Quickstart</a>
+    <a href="#install">Installation</a>
+    <h4>Foundations</h4>
+    <a href="#formats">Data formats</a>
+    <a href="#dialects">SQL dialects</a>
+    <a href="#concepts">How it thinks</a>
+    <h4>Reference</h4>
+    <a href="#cli">Command reference</a>
+    <a href="#flags">Flags in action</a>
+    <h4>Going further</h4>
+    <a href="#nested">Nested &amp; child tables</a>
+    <a href="#orm">ORM models</a>
+    <a href="#large-tables">Large tables</a>
+    <a href="#urls">URLs &amp; HTML</a>
+    <a href="#python-api">Python API</a>
+    <a href="#security">Security</a>
+    <a href="#recipes">Recipes &amp; tips</a>
+    <a href="#troubleshooting">Troubleshooting</a>
+  </aside>
+
+  <!-- ---------- CONTENT ---------- -->
+  <main class="content">
+
+    <!-- ============ QUICKSTART ============ -->
+    <section id="quickstart">
+      <h2><span class="num">1</span> Quickstart</h2>
+      <p class="lead">The whole idea, in one command: hand it some data, name a dialect, get SQL back.</p>
+
+      <p>Pass an inline JSON document and pick a dialect. With the <code class="inline">-i</code> /
+      <code class="inline">--inserts</code> flag you also get the values loaded:</p>
+
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span><button class="copy" data-copy>copy</button></div>
+<pre><code>$ ddlgenerator -i postgresql '[{"Name": "Alfred", "species": "wart hog", "kg": 22}]'</code></pre>
+      </div>
+
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">sql · postgresql</span><button class="copy" data-copy>copy</button></div>
+<pre><code>CREATE TABLE table0 (
+	name VARCHAR(6) NOT NULL,
+	species VARCHAR(8) NOT NULL,
+	kg INTEGER NOT NULL
+);
+
+INSERT INTO table0 (name, species, kg) VALUES ('Alfred', 'wart hog', 22);</code></pre>
+      </div>
+
+      <p>That is the entire loop. Note what it worked out on its own:</p>
+      <ul>
+        <li><strong>Types</strong> — <code class="inline">Name</code>/<code class="inline">species</code> became <code class="inline">VARCHAR</code> sized to the longest value; <code class="inline">kg</code> became <code class="inline">INTEGER</code>.</li>
+        <li><strong>Nullable</strong> — every value was present, so each column is <code class="inline">NOT NULL</code>.</li>
+        <li><strong>Identifiers</strong> — the messy <code class="inline">"Name"</code> header was normalized to lowercase <code class="inline">name</code>.</li>
+        <li><strong>Table name</strong> — no file given, so it defaulted to <code class="inline">table0</code>. (From a file, it takes the file name.)</li>
+      </ul>
+
+      <div class="callout tip">
+        <strong>One-liner straight into your database</strong>
+        <p>Because the output is plain SQL, you can pipe it straight into a client and create a populated table in a single line:</p>
+      </div>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span><button class="copy" data-copy>copy</button></div>
+<pre><code>$ ddlgenerator --inserts postgresql mydata.json | psql</code></pre>
+      </div>
+    </section>
+
+    <!-- ============ INSTALL ============ -->
+    <section id="install">
+      <h2><span class="num">2</span> Installation</h2>
+      <p class="lead">Python 3.10 or higher, plus SQLAlchemy 2.0+.</p>
+
+      <p>From PyPI:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span><button class="copy" data-copy>copy</button></div>
+<pre><code>pip install ddl-generator</code></pre>
+      </div>
+
+      <p>The core installs YAML, JSON and CSV support. The heavier parsers are optional extras —
+      install only what you need:</p>
+      <div class="grid cols-3">
+        <div class="card"><h4><span class="tag fmt">[html]</span></h4><p>HTML tables &amp; URL fetching (<code class="inline">beautifulsoup4</code>, <code class="inline">requests</code>)</p></div>
+        <div class="card"><h4><span class="tag fmt">[excel]</span></h4><p>Excel <code class="inline">.xls</code> &amp; <code class="inline">.xlsx</code> (<code class="inline">xlrd</code>, <code class="inline">openpyxl</code>)</p></div>
+        <div class="card"><h4><span class="tag fmt">[mongo]</span></h4><p>MongoDB collections (<code class="inline">pymongo</code>)</p></div>
+      </div>
+
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span><button class="copy" data-copy>copy</button></div>
+<pre><code>pip install "ddl-generator[html,excel,mongo]"   # everything</code></pre>
+      </div>
+
+      <p>From source, for development:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span><button class="copy" data-copy>copy</button></div>
+<pre><code>git clone https://github.com/pjbaur/ddl-generator-modern.git
+cd ddl-generator-modern
+python -m venv .venv &amp;&amp; source .venv/bin/activate
+pip install -e ".[dev]"</code></pre>
+      </div>
+    </section>
+
+    <!-- ============ FORMATS ============ -->
+    <section id="formats">
+      <h2><span class="num">3</span> Supported data formats</h2>
+      <p class="lead">Anything that looks like a table of records. The format is detected from the file
+      extension; for inline data it is sniffed automatically.</p>
+
+      <div class="grid cols-2">
+        <div class="card"><h4>🐍 Python objects</h4><p>A list of dicts, a generator, or a single dict. The native input — no file needed.</p></div>
+        <div class="card"><h4>{ } JSON</h4><p>Array of objects, or a single object, or an object-of-objects (each becomes a row).</p></div>
+        <div class="card"><h4>📄 YAML</h4><p>Lists of mappings. YAML's clean nesting is the nicest way to model hierarchical data.</p></div>
+        <div class="card"><h4>📊 CSV</h4><p>Header row becomes column names. First row used for types.</p></div>
+        <div class="card"><h4>🌐 HTML</h4><p>The richest table on a page is auto-selected from surrounding noise.</p></div>
+        <div class="card"><h4>📗 Excel</h4><p><code class="inline">.xls</code> (xlrd) and <code class="inline">.xlsx</code> (openpyxl), multi-sheet.</p></div>
+        <div class="card"><h4>🍃 MongoDB</h4><p>Pass a <code class="inline">pymongo</code> collection; each document is a row.</p></div>
+        <div class="card"><h4>🔗 URLs</h4><p>Fetch remote JSON / YAML / CSV / HTML / Excel with SSRF protection.</p></div>
+      </div>
+
+      <h3>Reading from files</h3>
+      <p>When you point at a file, the <strong>table is named after the file</strong> (minus its extension),
+      and the format is chosen by extension. Here a CSV becomes a PostgreSQL table called
+      <code class="inline">animals</code>:</p>
+
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">animals.csv</span><button class="copy" data-copy>copy</button></div>
+<pre><code>name,species,kg,notes
+Alfred,wart hog,22,loves turnips
+Gertrude,polar bear,312.7,deep thinker
+Emily,salamander,0.3,</code></pre>
+      </div>
+
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">sql · postgresql</span><button class="copy" data-copy>copy</button></div>
+<pre><code>CREATE TABLE animals (
+	name VARCHAR(8) NOT NULL,
+	species VARCHAR(10) NOT NULL,
+	kg DECIMAL(4, 1) NOT NULL,
+	notes VARCHAR(13)
+);
+
+INSERT INTO animals (name, species, kg, notes) VALUES ('Alfred', 'wart hog', 22, 'loves turnips');
+INSERT INTO animals (name, species, kg, notes) VALUES ('Gertrude', 'polar bear', 312.7, 'deep thinker');
+INSERT INTO animals (name, species, kg, notes) VALUES ('Emily', 'salamander', 0.3, NULL);</code></pre>
+      </div>
+
+      <p>Notice the inference at work: <code class="inline">kg</code> holds both <code class="inline">22</code>
+      and <code class="inline">312.7</code>, so it became <code class="inline">DECIMAL(4, 1)</code> rather
+      than <code class="inline">INTEGER</code>; and <code class="inline">notes</code> was blank for Emily,
+      so it is the only nullable column — and her row inserts <code class="inline">NULL</code>.</p>
+
+      <h3>JSON &amp; YAML side by side</h3>
+      <p>The same data reads the same way from either format. A JSON menu and a YAML film list,
+      each to a different dialect:</p>
+
+      <div class="grid cols-2">
+        <div class="code">
+          <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">menu.json → sqlite</span></div>
+<pre><code>CREATE TABLE menu (
+	name VARCHAR(14) NOT NULL,
+	cost DECIMAL(3, 2) NOT NULL,
+	warning VARCHAR(13)
+);</code></pre>
+        </div>
+        <div class="code">
+          <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">movies.yaml → mysql</span></div>
+<pre><code>CREATE TABLE movies (
+	name VARCHAR(23) NOT NULL,
+	rating DECIMAL(2, 1) NOT NULL
+);</code></pre>
+        </div>
+      </div>
+      <p>The <code class="inline">menu</code> output shows sparse rows handled gracefully: the
+      third item added a <code class="inline">warning</code> column the first two didn't have, so it
+      is nullable and the earlier rows are unaffected.</p>
+    </section>
+
+    <!-- ============ DIALECTS ============ -->
+    <section id="dialects">
+      <h2><span class="num">4</span> SQL dialects</h2>
+      <p class="lead">Any dialect SQLAlchemy speaks. The same data is rendered with the dialect's
+      native types and idiom.</p>
+
+      <p>Run the identical inline payload against four databases and watch the string and integer
+      types shift to each engine's preferred form:</p>
+
+      <div class="grid cols-2">
+        <div class="code">
+          <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang"><span class="tag pg">postgresql</span></span></div>
+<pre><code>CREATE TABLE table0 (
+	name VARCHAR(6) NOT NULL,
+	species VARCHAR(8) NOT NULL,
+	kg INTEGER NOT NULL
+);</code></pre>
+        </div>
+        <div class="code">
+          <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang"><span class="tag oracle">oracle</span></span></div>
+<pre><code>CREATE TABLE table0 (
+	name VARCHAR2(6 CHAR) NOT NULL,
+	species VARCHAR2(8 CHAR) NOT NULL,
+	kg INTEGER NOT NULL
+);</code></pre>
+        </div>
+        <div class="code">
+          <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang"><span class="tag mssql">mssql</span></div>
+<pre><code>CREATE TABLE table0 (
+	name NVARCHAR(6) NOT NULL,
+	species NVARCHAR(8) NOT NULL,
+	kg INTEGER NOT NULL
+);</code></pre>
+        </div>
+        <div class="code">
+          <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang"><span class="tag sqlite">sqlite</span></div>
+<pre><code>-- SQLite is permissive with types;
+-- VARCHAR(6) / DECIMAL(..) render as
+-- affinitized column types.
+CREATE TABLE menu (
+	name VARCHAR(14) NOT NULL,
+	cost DECIMAL(3, 2) NOT NULL,
+	warning VARCHAR(13)
+);</code></pre>
+        </div>
+      </div>
+
+      <div class="callout note">
+        <strong>Accepted dialect names</strong>
+        <p>The positional <code class="inline">dialect</code> argument also accepts the friendly spellings
+        <code class="inline">pg</code>, <code class="inline">pgsql</code> and <code class="inline">postgres</code>
+        (→ <code class="inline">postgresql</code>), and any prefix of <code class="inline">sqlalchemy</code>
+        / <code class="inline">django</code> (e.g. <code class="inline">sqla</code>, <code class="inline">dj</code>).</p>
+      </div>
+
+      <p>Beyond raw SQL, two dialects produce <strong>code</strong> instead of DDL — see
+      <a href="#orm">ORM models</a>.</p>
+    </section>
+
+    <!-- ============ CONCEPTS ============ -->
+    <section id="concepts">
+      <h2><span class="num">5</span> How it thinks</h2>
+      <p class="lead">A few rules explain almost every output. Once you internalize them, the generated
+      DDL is predictable.</p>
+
+      <h3>① Most-specific type that fits every value</h3>
+      <p>For each column, DDL Generator finds the narrowest type that can hold <em>all</em> of its values.
+      A column of <code class="inline">22</code> alone is <code class="inline">INTEGER</code>; add
+      <code class="inline">312.7</code> and it widens to <code class="inline">DECIMAL(4, 1)</code>.
+      Strings are sized to the longest value (with optional <a href="#cushion">cushion</a>).</p>
+
+      <div class="callout warn">
+        <strong>Heads-up: a lone 0 / 1 is read as BOOLEAN</strong>
+        <p>A column whose only values are <code class="inline">0</code>/<code class="inline">1</code> (or
+        <code class="inline">true</code>/<code class="inline">false</code>) is inferred as
+        <code class="inline">BOOLEAN</code>, not <code class="inline">INTEGER</code>. With a single row this
+        can surprise you. The fix is more data — or remap the values so the intent is unambiguous.</p>
+      </div>
+
+      <h3>② Nullable unless every row has a value</h3>
+      <p>If a key is missing from <em>any</em> row (or empty), the column is nullable. That is why
+      <code class="inline">notes</code> above was the only column without <code class="inline">NOT NULL</code>.</p>
+
+      <div class="callout warn">
+        <strong>Sampling changes the inference</strong>
+        <p>Types are inferred from the rows actually read. The <code class="inline">--limit</code> flag
+        caps how many rows are inspected, so a limited sample can produce different (narrower) types
+        than the full file. See <a href="#limit">--limit</a>.</p>
+      </div>
+
+      <h3>③ Identifiers are normalized</h3>
+      <p>Header names with spaces or mixed case are cleaned into valid SQL identifiers:
+      <code class="inline">"common name"</code> → <code class="inline">common_name</code>,
+      <code class="inline">"Name"</code> → <code class="inline">name</code>.</p>
+
+      <h3>④ The table is named after its source</h3>
+      <p>A file <code class="inline">animals.csv</code> yields table <code class="inline">animals</code>.
+      A URL yields a name from its path. Inline data with no name falls back to
+      <code class="inline">table0</code> (CLI) or <code class="inline">generated_table0</code> (Python API).</p>
+    </section>
+
+    <!-- ============ CLI REFERENCE ============ -->
+    <section id="cli">
+      <h2><span class="num">6</span> Command reference</h2>
+      <p class="lead">The command shape is always <code class="inline">ddlgenerator [flags] dialect datafile…</code>.</p>
+
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">usage</span><button class="copy" data-copy>copy</button></div>
+<pre><code>ddlgenerator [-h] [-k KEY] [--force-key] [-r] [-u] [-t] [-d] [-i]
+             [--no-creates] [--limit LIMIT] [-c CUSHION]
+             [--save-metadata-to FILENAME] [--use-metadata-from FILENAME] [-l LOG]
+             dialect datafile [datafile ...]</code></pre>
+      </div>
+
+      <table class="opts">
+        <thead><tr><th>Flag</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>dialect</code></td><td>Positional. One of <code>postgresql mysql sqlite oracle mssql</code>, or <code>sqlalchemy</code>/<code>django</code> for ORM code.</td></tr>
+          <tr><td><code>datafile</code></td><td>Positional (one or more). A file path, URL, SQLAlchemy URL, or inline JSON/YAML string. Multiple files produce multiple tables.</td></tr>
+          <tr><td><code>-i, --inserts</code></td><td>Append <code>INSERT</code> statements for every row.</td></tr>
+          <tr><td><code>-d, --drops</code></td><td>Prepend <code>DROP TABLE IF EXISTS</code> for idempotent re-runs.</td></tr>
+          <tr><td><code>--no-creates</code></td><td>Emit <em>only</em> inserts — skip the <code>CREATE TABLE</code>. Pairs with saved metadata for incremental loads.</td></tr>
+          <tr><td><code>-u, --uniques</code></td><td>Add <code>UNIQUE</code> constraints for columns whose values are distinct across the sample.</td></tr>
+          <tr><td><code>-t, --text</code></td><td>Use unbounded <code>TEXT</code> instead of length-sized <code>VARCHAR(n)</code>.</td></tr>
+          <tr><td><code>-k, --key NAME</code></td><td>When a primary key is needed, name it <code>NAME</code> instead of the default.</td></tr>
+          <tr><td><code>--force-key</code></td><td>Give <em>every</em> table a primary key, even if none was otherwise required.</td></tr>
+          <tr><td><code>-r, --reorder</code></td><td>Reorder columns alphabetically, with the key column first.</td></tr>
+          <tr><td><code>-c, --cushion N</code></td><td>Pad variable-length column sizes with extra headroom.</td></tr>
+          <tr><td><code>--limit N</code></td><td>Read at most <code>N</code> rows from each source (affects inference).</td></tr>
+          <tr><td><code>--save-metadata-to F</code></td><td>Save the inferred structure to <code>F</code> so later runs can skip re-analysis. (Auto-appends <code>.yaml</code>.)</td></tr>
+          <tr><td><code>--use-metadata-from F</code></td><td>Reuse a previously saved structure instead of re-inferring.</td></tr>
+          <tr><td><code>-l, --log LEVEL</code></td><td>Log verbosity: <code>DEBUG INFO WARN ERROR CRITICAL</code>. Default <code>WARN</code>.</td></tr>
+          <tr><td><code>-h, --help</code></td><td>Show help and exit.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ============ FLAGS IN ACTION ============ -->
+    <section id="flags">
+      <h2><span class="num">7</span> Flags in action</h2>
+      <p class="lead">Each flag demonstrated against real data. All output below is verbatim from the tool.</p>
+
+      <h3 id="inserts">Including &amp; excluding statements</h3>
+      <p><code class="inline">-d</code> adds the drop, so re-running a script is safe:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span><button class="copy" data-copy>copy</button></div>
+<pre><code>$ ddlgenerator -d -i postgresql animals.csv</code></pre>
+      </div>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">sql · postgresql</span></div>
+<pre><code>DROP TABLE IF EXISTS animals;
+
+CREATE TABLE animals (
+	name VARCHAR(8) NOT NULL,
+	species VARCHAR(10) NOT NULL,
+	kg DECIMAL(4, 1) NOT NULL,
+	notes VARCHAR(13)
+);
+
+INSERT INTO animals (name, species, kg, notes) VALUES ('Alfred', 'wart hog', 22, 'loves turnips');
+INSERT INTO animals (name, species, kg, notes) VALUES ('Gertrude', 'polar bear', 312.7, 'deep thinker');
+INSERT INTO animals (name, species, kg, notes) VALUES ('Emily', 'salamander', 0.3, NULL);</code></pre>
+      </div>
+      <p>Flip to <code class="inline">--no-creates</code> to emit <em>just</em> the inserts (useful for
+      appending to an existing table, or after a metadata-anchored <code class="inline">CREATE</code>):</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">sql · postgresql</span></div>
+<pre><code>INSERT INTO animals (name, species, kg, notes) VALUES ('Alfred', 'wart hog', 22, 'loves turnips');
+INSERT INTO animals (name, species, kg, notes) VALUES ('Gertrude', 'polar bear', 312.7, 'deep thinker');
+INSERT INTO animals (name, species, kg, notes) VALUES ('Emily', 'salamander', 0.3, NULL);</code></pre>
+      </div>
+
+      <h3 id="uniques">Detecting uniqueness — <code>-u</code></h3>
+      <p>For columns whose values are all distinct in the sample, <code class="inline">-u</code> emits
+      <code class="inline">UNIQUE</code> constraints — handy for natural keys like id and email:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">sql · postgresql</span></div>
+<pre><code>CREATE TABLE table0 (
+	id INTEGER NOT NULL,
+	name VARCHAR(8) NOT NULL,
+	UNIQUE (id),
+	UNIQUE (name)
+);</code></pre>
+      </div>
+
+      <h3 id="text">Unbounded text — <code>-t</code></h3>
+      <p>Skip the length arithmetic and use <code class="inline">TEXT</code> everywhere (great for
+      free-form fields or when you don't want future inserts to overflow a width):</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">sql · postgresql</span></div>
+<pre><code>CREATE TABLE table0 (
+	name TEXT NOT NULL,
+	species TEXT NOT NULL,
+	kg INTEGER NOT NULL
+);</code></pre>
+      </div>
+
+      <h3 id="keys">Naming &amp; forcing primary keys</h3>
+      <p><code class="inline">--force-key</code> guarantees a primary key; <code class="inline">-k</code>
+      names it. Together they produce a clean surrogate <code class="inline">id</code> column:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span><button class="copy" data-copy>copy</button></div>
+<pre><code>$ ddlgenerator --force-key -k id postgresql \
+    '[{"id": 1, "name": "Alfred"}, {"id": 2, "name": "Gertrude"}]'</code></pre>
+      </div>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">sql · postgresql</span></div>
+<pre><code>CREATE TABLE table0 (
+	id SERIAL NOT NULL,
+	name VARCHAR(8) NOT NULL,
+	PRIMARY KEY (id)
+);</code></pre>
+      </div>
+
+      <h3 id="reorder">Alphabetical column order — <code>-r</code></h3>
+      <p>Reorders columns A→Z, with the key pinned first. Useful for diffing schemas generated from
+      different sources:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">sql · postgresql</span></div>
+<pre><code>CREATE TABLE table0 (
+	id BOOLEAN NOT NULL,
+	apple INTEGER NOT NULL,
+	mango INTEGER NOT NULL,
+	zebra BOOLEAN NOT NULL,
+	PRIMARY KEY (id)
+);</code></pre>
+      </div>
+      <div class="callout note">
+        <strong>Why is <code>id</code>/<code>zebra</code> a BOOLEAN here?</strong>
+        <p>This is the <a href="#concepts">lone-0/1 rule</a> in action: a one-row sample where a column's
+        only value is <code>1</code> reads as boolean. More rows would resolve it to
+        <code class="inline">INTEGER</code>. It's a faithful illustration of how inference follows the data.</p>
+      </div>
+
+      <h3 id="cushion">Sizing headroom — <code>-c</code></h3>
+      <p>Add cushion to give variable-length columns room to grow, so a slightly longer future value
+      still fits:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span><button class="copy" data-copy>copy</button></div>
+<pre><code>$ ddlgenerator -c 5 postgresql '[{"Name": "Alfred", "species": "wart hog", "kg": 22}]'</code></pre>
+      </div>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">sql · postgresql</span></div>
+<pre><code>CREATE TABLE table0 (
+	name VARCHAR(16) NOT NULL,
+	species VARCHAR(18) NOT NULL,
+	kg BIGINT NOT NULL
+);</code></pre>
+      </div>
+      <div class="callout warn">
+        <strong>Cushion can move more than just length</strong>
+        <p>Padding is applied to the inferred column metadata, and in this build it can also nudge the
+        numeric type (<code class="inline">kg</code> widened from <code class="inline">INTEGER</code> to
+        <code class="inline">BIGINT</code>). Treat cushion as "give the schema breathing room" rather
+        than expecting it to touch only strings.</p>
+      </div>
+
+      <h3 id="limit">Sampling with <code>--limit</code></h3>
+      <p>Cap rows read per source — handy for a quick peek at a big file, but be aware it narrows the
+      inference. Here, reading only Alfred's row makes <code class="inline">notes</code> appear
+      <code class="inline">NOT NULL</code> (Emily's blank value was never seen):</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">sql · postgresql</span></div>
+<pre><code>CREATE TABLE animals (
+	name VARCHAR(6) NOT NULL,
+	species VARCHAR(8) NOT NULL,
+	kg INTEGER NOT NULL,
+	notes VARCHAR(13) NOT NULL
+);
+
+INSERT INTO animals (name, species, kg, notes) VALUES ('Alfred', 'wart hog', 22, 'loves turnips');</code></pre>
+      </div>
+
+      <h3 id="multiple">Many files, one command</h3>
+      <p>Pass multiple datafiles to emit several tables at once — each named after its file:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span><button class="copy" data-copy>copy</button></div>
+<pre><code>$ ddlgenerator postgresql movies.yaml menu.json</code></pre>
+      </div>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">sql · postgresql</span></div>
+<pre><code>CREATE TABLE movies (
+	name VARCHAR(23) NOT NULL,
+	rating DECIMAL(2, 1) NOT NULL
+);
+
+CREATE TABLE menu (
+	name VARCHAR(14) NOT NULL,
+	cost DECIMAL(3, 2) NOT NULL,
+	warning VARCHAR(13)
+);</code></pre>
+      </div>
+    </section>
+
+    <!-- ============ NESTED ============ -->
+    <section id="nested">
+      <h2><span class="num">8</span> Nested data &amp; child tables</h2>
+      <p class="lead">This is DDL Generator's superpower. When a column holds a list or mapping, it
+      splits that nested structure out into its own table and wires up the foreign key.</p>
+
+      <p>Each bird ranges over several states. YAML expresses that nesting naturally:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">birds.yaml</span><button class="copy" data-copy>copy</button></div>
+<pre><code>-
+  common name: Northern Cardinal
+  scientific name: Carnidalis cardinalis
+  length in cm: 21
+  state:
+    - name: Illinois
+      abbrev: IL
+    - name: Ohio
+      abbrev: OH
+-
+  common name: Great Northern Loon
+  scientific name: Gavia immer
+  state:
+    - name: Minnesota
+      abbrev: MN</code></pre>
+      </div>
+
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">sql · postgresql</span><button class="copy" data-copy>copy</button></div>
+<pre><code>CREATE TABLE birds (
+	common_name VARCHAR(19) NOT NULL,
+	scientific_name VARCHAR(21) NOT NULL,
+	length_in_cm INTEGER,
+	birds_id SERIAL NOT NULL,
+	PRIMARY KEY (birds_id)
+);
+
+
+CREATE TABLE state (
+	name VARCHAR(14) NOT NULL,
+	abbrev VARCHAR(2) NOT NULL,
+	birds_id INTEGER NOT NULL,
+	FOREIGN KEY(birds_id) REFERENCES birds (birds_id)
+);</code></pre>
+      </div>
+
+      <p>One parent table <code class="inline">birds</code> and one child table
+      <code class="inline">state</code>, automatically related. Because a child needs to reference its
+      parent, DDL Generator introduces a surrogate primary key on the parent and logs that it did so:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">log</span></div>
+<pre><code>WARNING:root:Primary key birds.birds_id not requested, but nesting demands it</code></pre>
+      </div>
+      <div class="callout tip">
+        <strong>Name the parent key for cleaner DDL</strong>
+        <p>Add <code class="inline">-k id</code> and the auto key becomes <code class="inline">id</code>
+        instead of <code class="inline">birds_id</code>, and the child's foreign key follows suit.</p>
+      </div>
+    </section>
+
+    <!-- ============ ORM ============ -->
+    <section id="orm">
+      <h2><span class="num">9</span> Generate ORM models</h2>
+      <p class="lead">Use <code class="inline">sqlalchemy</code> or <code class="inline">django</code> as
+      the dialect and get runnable Python instead of SQL.</p>
+
+      <h3><span class="tag sqla">sqlalchemy</span> table definitions</h3>
+      <p>The output is a ready-to-run script — engine, metadata, and a <code class="inline">Table</code>
+      definition with the same type inference behind it:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span><button class="copy" data-copy>copy</button></div>
+<pre><code>$ ddlgenerator sqlalchemy '[{"Name": "Alfred", "species": "wart hog", "kg": 22}]'</code></pre>
+      </div>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">python</span><button class="copy" data-copy>copy</button></div>
+<pre><code>import datetime
+# check for other imports you may need, like your db driver
+from sqlalchemy import create_engine, MetaData, ForeignKey
+engine = create_engine(r'sqlite:///:memory:')
+metadata = MetaData()
+conn = engine.connect()
+
+from sqlalchemy import Column, Integer, Table, Unicode
+
+
+table0 = Table('table0', metadata,
+  Column('name', Unicode(length=6), nullable=False),
+  Column('species', Unicode(length=8), nullable=False),
+  Column('kg', Integer(), nullable=False),
+  schema=None)
+
+metadata.create_all(engine)</code></pre>
+      </div>
+
+      <h3><span class="tag django">django</span> models</h3>
+      <p>If Django is installed, the generated DDL is run through Django's
+      <code class="inline">inspectdb</code> to produce a model module. (Requires
+      <code class="inline">django</code> importable on your path.)</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span><button class="copy" data-copy>copy</button></div>
+<pre><code>$ ddlgenerator django '[{"Name": "Alfred", "species": "wart hog", "kg": 22}]'</code></pre>
+      </div>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">python</span><button class="copy" data-copy>copy</button></div>
+<pre><code># This is an auto-generated Django model module.
+# You'll have to do the following manually to clean this up:
+#   * Rearrange models' order
+#   * Make sure each model has one field with primary_key=True
+#   * Make sure each ForeignKey and OneToOneField has `on_delete` set
+#   * Remove `managed = False` lines if you wish to allow Django to create/modify/delete the table
+from django.db import models
+
+
+class Table0(models.Model):
+    name = models.CharField()
+    species = models.CharField()
+    kg = models.IntegerField()
+
+    class Meta:
+        managed = False
+        db_table = 'table0'</code></pre>
+      </div>
+    </section>
+
+    <!-- ============ LARGE TABLES ============ -->
+    <section id="large-tables">
+      <h2><span class="num">10</span> Working with large tables</h2>
+      <p class="lead">DDL Generator loads data into memory, so it is happiest with tables well under
+      your RAM budget. For bigger sets, the intended workflow is <em>analyze once, load many</em>.</p>
+
+      <p>The idea: infer the schema from a small representative sample and save it, then generate only
+      <code class="inline">INSERT</code>s from the remaining files using that frozen schema — skipping
+      re-analysis entirely.</p>
+
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell · step 1 — analyze a sample</span><button class="copy" data-copy>copy</button></div>
+<pre><code>$ ddlgenerator --save-metadata-to schema.meta postgresql sample.csv
+# writes the inferred structure to schema.meta.yaml</code></pre>
+      </div>
+
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell · step 2 — load the rest without re-analyzing</span><button class="copy" data-copy>copy</button></div>
+<pre><code>$ ddlgenerator --no-creates -i --use-metadata-from schema.meta.yaml postgresql batch_2.csv</code></pre>
+      </div>
+
+      <p>The saved file is plain, human-readable safe YAML — a <code class="inline">columns</code> map
+      of inferred column types plus a <code class="inline">children</code> map for any sub-tables.
+      No Python object tags, so it round-trips cleanly through <code class="inline">safe_load</code>:</p>
+
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">schema.meta.yaml</span></div>
+<pre><code>columns:
+  name:
+    pytype: builtins.str
+    sample_datum: Gertrude
+    str_length: 8
+    is_nullable: false
+    is_unique: true
+  kg:
+    pytype: decimal.Decimal
+    sample_datum: '999.9'
+    str_length: 5
+    is_nullable: false
+    is_unique: true
+children: {}</code></pre>
+      </div>
+
+      <p>Reusing it reproduces the original schema exactly, then emits the inserts against that frozen
+      definition:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">sql · postgresql</span></div>
+<pre><code>INSERT INTO animals (name, species, kg, notes) VALUES ('Alfred', 'wart hog', 22, 'loves turnips');
+INSERT INTO animals (name, species, kg, notes) VALUES ('Gertrude', 'polar bear', 312.7, 'deep thinker');
+INSERT INTO animals (name, species, kg, notes) VALUES ('Emily', 'salamander', 0.3, NULL);</code></pre>
+      </div>
+
+      <div class="callout tip">
+        <strong>Same options on both steps</strong>
+        <p>Type sizing (e.g. <code class="inline">-c</code> cushion) is applied from the runtime flags at
+        restore time, not baked into the file. Run step 2 with the same flags you used in step 1 so the
+        restored widths match. Child tables are saved under <code class="inline">children:</code> and
+        restored with their foreign keys intact.</p>
+      </div>
+    </section>
+
+    <!-- ============ URLS ============ -->
+    <section id="urls">
+      <h2><span class="num">11</span> Fetching URLs &amp; scraping HTML</h2>
+      <p class="lead">Point the datafile at a URL and DDL Generator fetches it for you — with SSRF
+      protection so it won't reach into private address space.</p>
+
+      <p>The format is chosen from the URL's extension; an HTML page triggers table scraping:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span><button class="copy" data-copy>copy</button></div>
+<pre><code>$ ddlgenerator postgresql https://example.com/data/cities.html
+$ ddlgenerator sqlite https://example.com/data/sales.json</code></pre>
+      </div>
+
+      <h3>Extracting the table from a noisy page</h3>
+      <p>Web pages are full of layout tables. DDL Generator scores every <code class="inline">&lt;table&gt;</code>
+      on the page (favoring tables with many rows, a real header, and several columns) and picks the one
+      most likely to be data. A local Ohio-cities HTML page yields a clean three-column table:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">sql · postgresql</span></div>
+<pre><code>CREATE TABLE cities_of_ohio (
+	city VARCHAR(22) NOT NULL,
+	population VARCHAR(7) NOT NULL,
+	county VARCHAR(60) NOT NULL
+);</code></pre>
+      </div>
+      <div class="callout note">
+        <strong>Why is <code>population</code> a VARCHAR?</strong>
+        <p>Because the page contained values like "1,234" (thousands separators) or footnotes that aren't
+        pure integers, so the column was inferred as text. Scrub the source — or post-process the types —
+        if you need a numeric column.</p>
+      </div>
+    </section>
+
+    <!-- ============ PYTHON API ============ -->
+    <section id="python-api">
+      <h2><span class="num">12</span> Python API</h2>
+      <p class="lead">Everything the CLI does is available as a library. The core is the
+      <code class="inline">Table</code> class; data is read through <code class="inline">Source</code>.</p>
+
+      <h3>The <code>Table</code> class</h3>
+      <p>Construct it from any iterable of dicts, then ask for SQL, SQLAlchemy code, or inserts in any
+      dialect:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">python</span><button class="copy" data-copy>copy</button></div>
+<pre><code>from ddlgenerator.ddlgenerator import Table
+
+rows = [{"Name": "Alfred", "species": "wart hog", "kg": 22}]
+table = Table(rows)
+
+print(table.sql("postgresql", inserts=True))</code></pre>
+      </div>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">output</span></div>
+<pre><code>DROP TABLE IF EXISTS generated_table0;
+
+CREATE TABLE generated_table0 (
+	name VARCHAR(6) NOT NULL,
+	species VARCHAR(8) NOT NULL,
+	kg INTEGER NOT NULL
+);
+
+INSERT INTO generated_table0 (name, species, kg) VALUES ('Alfred', 'wart hog', 22);</code></pre>
+      </div>
+
+      <p>The same <code class="inline">Table</code> constructor accepts the same options as the CLI.
+      The three render methods are:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">python</span><button class="copy" data-copy>copy</button></div>
+<pre><code>table.sql("mysql")                       # raw DDL (+ inserts/drops via kwargs)
+table.sqlalchemy()                       # a runnable SQLAlchemy Table() script
+list(table.inserts(dialect="postgresql"))# just the INSERT strings
+
+# options mirror the CLI flags
+Table(rows, uniques=True, pk_name="id",
+      force_pk=True, reorder=True,
+      varying_length_text=True,
+      data_size_cushion=5).sql("postgresql")</code></pre>
+      </div>
+
+      <h3>Reading files with <code>Source</code></h3>
+      <p>Use <code class="inline">Source</code> to read a file, URL, Excel sheet, or MongoDB collection
+      into rows the <code class="inline">Table</code> can consume. It doubles as its own iterator and
+      infers a table name:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">python</span><button class="copy" data-copy>copy</button></div>
+<pre><code>from ddlgenerator.sources import Source
+from ddlgenerator.ddlgenerator import Table
+
+with Source("animals.csv") as src:
+    table = Table(src, table_name=src.table_name)
+    print(table.sql("postgresql", inserts=True))</code></pre>
+      </div>
+      <div class="callout tip">
+        <strong>Use it as a context manager</strong>
+        <p><code class="inline">Source</code> opens files; wrapping it in <code class="inline">with</code>
+        ensures they're closed even if generation raises.</p>
+      </div>
+    </section>
+
+    <!-- ============ SECURITY ============ -->
+    <section id="security">
+      <h2><span class="num">13</span> Security</h2>
+      <p class="lead">This modernized fork is hardened compared to the original. The defaults are safe;
+      here's what's under the hood.</p>
+
+      <div class="grid cols-2">
+        <div class="card"><h4>🚫 No pickle</h4><p>Pickle deserialization is removed entirely — there is no <code class="inline">.pkl</code> path to exploit.</p></div>
+        <div class="card"><h4>✅ Safe YAML</h4><p>Uses <code class="inline">yaml.safe_load</code>, so YAML cannot construct arbitrary Python objects.</p></div>
+        <div class="card"><h4>🛡️ SSRF protection</h4><p>URL fetching validates destinations and blocks private/internal address ranges.</p></div>
+        <div class="card"><h4>🔒 Parameterized inserts</h4><p>Values are emitted as properly bound SQL literals, not interpolated into the query string.</p></div>
+      </div>
+
+      <div class="callout tip">
+        <strong>Metadata files are safe too</strong>
+        <p>The <a href="#large-tables">saved-schema</a> file is plain safe YAML — column types are stored
+        as names (<code class="inline">builtins.str</code>, <code class="inline">decimal.Decimal</code>)
+        and resolved back through a fixed whitelist on load, never by importing arbitrary modules. So a
+        tampered metadata file can't name its way into code execution the way a Python-tagged YAML could.</p>
+      </div>
+    </section>
+
+    <!-- ============ RECIPES ============ -->
+    <section id="recipes">
+      <h2><span class="num">14</span> Recipes &amp; tips</h2>
+      <p class="lead">Common goals, copy-paste ready.</p>
+
+      <h3>Build a database table from a spreadsheet</h3>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span><button class="copy" data-copy>copy</button></div>
+<pre><code>$ ddlgenerator -i -d postgresql budget.xlsx &gt; budget.sql
+$ psql -f budget.sql</code></pre>
+      </div>
+
+      <h3>Generate a SQLAlchemy model file</h3>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span><button class="copy" data-copy>copy</button></div>
+<pre><code>$ ddlgenerator sqlalchemy users.yaml &gt; models.py</code></pre>
+      </div>
+
+      <h3>Make re-runnable scripts idempotent</h3>
+      <p><code class="inline">-d</code> drops first, so the same script can run over and over:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span><button class="copy" data-copy>copy</button></div>
+<pre><code>$ ddlgenerator -d -i sqlite events.json &gt; rebuild.sql</code></pre>
+      </div>
+
+      <h3>Keep free-text columns unbounded</h3>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span></div>
+<pre><code>$ ddlgenerator -t postgresql articles.json</code></pre>
+      </div>
+
+      <h3>Diff schemas generated from different sources</h3>
+      <p>Normalize column order so diffs are stable:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span></div>
+<pre><code>$ ddlgenerator -r --force-key -k id postgresql prod_dump.json</code></pre>
+      </div>
+
+      <h3>Read a multi-sheet workbook</h3>
+      <p>Excel sources iterate every sheet by default; each sheet becomes its own table
+      (named <code class="inline">workbook-sheet</code>).</p>
+
+      <div class="callout tip">
+        <strong>Gotcha: inline data needs quotes</strong>
+        <p>When passing JSON/YAML directly on the command line, quote the whole string so your shell
+        doesn't touch the braces and spaces: <code class="inline">'[{"a": 1}]'</code>.</p>
+      </div>
+    </section>
+
+    <!-- ============ TROUBLESHOOTING ============ -->
+    <section id="troubleshooting">
+      <h2><span class="num">15</span> Troubleshooting</h2>
+
+      <h3><code>ImportError: must pip install openpyxl / xlrd / ...</code></h3>
+      <p>You hit a format whose parser isn't installed. Install the matching extra —
+      <code class="inline">[html]</code>, <code class="inline">[excel]</code>, or
+      <code class="inline">[mongo]</code>.</p>
+
+      <h3><code>NotImplementedError: First arg must be one of: ...</code></h3>
+      <p>The dialect wasn't recognized. Use one of
+      <code class="inline">postgresql mysql sqlite oracle mssql sqlalchemy django</code>
+      (or the friendly aliases / prefixes noted in <a href="#dialects">Dialects</a>).</p>
+
+      <h3>A column came out as BOOLEAN / TEXT when I expected INTEGER / VARCHAR</h3>
+      <p>That's inference following the data, not a bug. A lone <code class="inline">0</code>/<code class="inline">1</code>
+      → BOOLEAN; values with commas or units → VARCHAR. Fix the source data, add more rows, or remap the
+      column afterward. See <a href="#concepts">How it thinks</a>.</p>
+
+      <h3>A column I expected to be NOT NULL came out nullable (or vice-versa)</h3>
+      <p>Nullability is decided by which rows were actually read. If you used
+      <code class="inline">--limit</code> or a sparse sample, widen the sample. A value missing in
+      <em>any</em> read row makes the column nullable.</p>
+
+      <h3><code>--use-metadata-from</code> complains the saved file is the wrong name</h3>
+      <p><code class="inline">--save-metadata-to</code> automatically appends <code class="inline">.yaml</code>,
+      so <code class="inline">--save-metadata-to schema.meta</code> writes <code class="inline">schema.meta.yaml</code>.
+      Reference the actual filename when restoring:
+      <code class="inline">--use-metadata-from schema.meta.yaml</code>.</p>
+
+      <h3><code>ValueError: Unknown column type ... in metadata file</code></h3>
+      <p>The metadata file named a type that isn't on ddlgenerator's whitelist (e.g. it was hand-edited
+      or comes from an incompatible version). Re-generate the file with
+      <code class="inline">--save-metadata-to</code> from a current run; the type is resolved through a
+      fixed whitelist, so an unknown name is refused rather than imported.</p>
+
+      <h3>The generated SQLAlchemy output references undefined <code>metadata</code></h3>
+      <p>The script declares <code class="inline">engine</code> and <code class="inline">metadata</code>
+      for you at the top; just make sure you keep those lines when you copy the
+      <code class="inline">Table(...)</code> definition into your own project.</p>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  DDL Generator · a modernized fork of <a href="https://github.com/catherinedevlin/ddl-generator">catherinedevlin/ddl-generator</a>.
+  &nbsp;Guide for v0.2.1 · all examples are verbatim output verified against the tool.
+</footer>
+
+<button class="totop" id="toTop" aria-label="Back to top">↑</button>
+
+<script>
+  // ---- Copy buttons ----
+  document.querySelectorAll('.code').forEach(function(block){
+    var btn = block.querySelector('button.copy');
+    if(!btn) return;
+    var code = block.querySelector('pre code') || block.querySelector('pre');
+    btn.addEventListener('click', function(){
+      var text = code.innerText;
+      var done = function(){
+        btn.textContent = 'copied'; btn.classList.add('done');
+        setTimeout(function(){ btn.textContent='copy'; btn.classList.remove('done'); }, 1400);
+      };
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(text).then(done).catch(done);
+      } else {
+        var ta=document.createElement('textarea'); ta.value=text; document.body.appendChild(ta);
+        ta.select(); try{document.execCommand('copy');}catch(e){} document.body.removeChild(ta); done();
+      }
+    });
+  });
+
+  // ---- Active TOC link ----
+  var tocLinks = Array.prototype.slice.call(document.querySelectorAll('.toc a'));
+  var sections = tocLinks.map(function(a){ return document.querySelector(a.getAttribute('href')); });
+  function onScroll(){
+    var pos = window.scrollY + 120, idx = 0;
+    for(var i=0;i<sections.length;i++){
+      if(sections[i] && sections[i].offsetTop <= pos) idx = i;
+    }
+    tocLinks.forEach(function(a,i){ a.classList.toggle('active', i===idx); });
+    var tt = document.getElementById('toTop');
+    if(window.scrollY > 600) tt.classList.add('show'); else tt.classList.remove('show');
+  }
+  window.addEventListener('scroll', onScroll, {passive:true}); onScroll();
+  document.getElementById('toTop').addEventListener('click', function(){ window.scrollTo({top:0,behavior:'smooth'}); });
+
+  // ---- Mobile menu ----
+  document.getElementById('menuBtn').addEventListener('click', function(){
+    document.body.classList.toggle('nav-open');
+  });
+</script>
+</body>
+</html>
