@@ -29,6 +29,7 @@ import itertools
 import json
 import logging
 import os.path
+import random
 import urllib.parse
 from collections import OrderedDict
 from collections.abc import Iterable, Iterator
@@ -341,7 +342,8 @@ class Source:
 
     def __init__(self, src: Any, limit: int | None = None,
                  fieldnames: Any = None, table: str = '*',
-                 every_nth: int | None = None, engine: Any = None) -> None:
+                 every_nth: int | None = None, engine: Any = None,
+                 sample_k: int | None = None, seed: int | None = None) -> None:
         """
         Initialize a data source.
 
@@ -354,6 +356,8 @@ class Source:
             engine: SQLAlchemy engine to query against, required when src is
                 a MetaData object (SA 2.x MetaData carries no engine of its
                 own -- there is no ``meta.bind`` to fall back on)
+            sample_k: Reservoir-sample exactly this many rows (Algorithm R)
+            seed: Random seed for sample_k reproducibility; requires sample_k
         """
         self.counter = 0
         self.limit = limit
@@ -361,6 +365,17 @@ class Source:
             raise ValueError(f"every_nth must be a positive integer, got {every_nth}")
         self.every_nth = every_nth
         self._stride_counter = 0
+        if sample_k is not None and sample_k < 1:
+            raise ValueError(f"sample_k must be a positive integer, got {sample_k}")
+        if sample_k is not None and (limit is not None or every_nth is not None):
+            raise ValueError("sample_k cannot be combined with limit or every_nth")
+        if seed is not None and sample_k is None:
+            raise ValueError("seed requires sample_k")
+        self.sample_k = sample_k
+        self.seed = seed
+        self._rng = random.Random(seed)
+        self._reservoir: list | None = None
+        self._reservoir_pos = 0
         self.table_name = f'Table{Source.table_count}'
         self.fieldnames = fieldnames
         self.db_engine = None

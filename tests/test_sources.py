@@ -595,6 +595,31 @@ class TestSourceEveryNth:
 
 
 # ---------------------------------------------------------------------------
+# Source class - sample_k (reservoir sampling)
+# ---------------------------------------------------------------------------
+class TestSourceSampleKValidation:
+    def test_sample_k_zero_raises(self):
+        with pytest.raises(ValueError, match="sample_k must be a positive integer"):
+            Source(iter([{"id": 1}]), sample_k=0)
+
+    def test_sample_k_negative_raises(self):
+        with pytest.raises(ValueError, match="sample_k must be a positive integer"):
+            Source(iter([{"id": 1}]), sample_k=-1)
+
+    def test_seed_without_sample_k_raises(self):
+        with pytest.raises(ValueError, match="seed requires sample_k"):
+            Source(iter([{"id": 1}]), seed=42)
+
+    def test_sample_k_combined_with_limit_raises(self):
+        with pytest.raises(ValueError, match="sample_k cannot be combined with limit or every_nth"):
+            Source(iter([{"id": 1}]), sample_k=1, limit=1)
+
+    def test_sample_k_combined_with_every_nth_raises(self):
+        with pytest.raises(ValueError, match="sample_k cannot be combined with limit or every_nth"):
+            Source(iter([{"id": 1}]), sample_k=1, every_nth=1)
+
+
+# ---------------------------------------------------------------------------
 # Source.count
 # ---------------------------------------------------------------------------
 class TestSourceCount:
