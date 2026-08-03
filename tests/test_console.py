@@ -56,6 +56,18 @@ class TestArgumentParsing:
         args = parser.parse_args(["--limit", "100", "postgresql", "data.yaml"])
         assert args.limit == 100
 
+    def test_every_nth_flag(self):
+        args = parser.parse_args(["--every-nth", "5", "postgresql", "data.yaml"])
+        assert args.every_nth == 5
+
+    def test_every_nth_default_none(self):
+        args = parser.parse_args(["postgresql", "data.yaml"])
+        assert args.every_nth is None
+
+    def test_count_only_flag(self):
+        args = parser.parse_args(["--count-only", "postgresql", "data.yaml"])
+        assert args.count_only is True
+
     def test_cushion_flag(self):
         args = parser.parse_args(["-c", "5", "postgresql", "data.yaml"])
         assert args.cushion == 5
@@ -167,6 +179,44 @@ class TestGenerate:
     def test_invalid_dialect_raises(self):
         with pytest.raises(NotImplementedError, match="First arg must be one of"):
             generate("bogus_dialect dummy.yaml")
+
+
+class TestEveryNthValidation:
+    def test_every_nth_zero_raises(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}]')
+        with pytest.raises(ValueError, match="--every-nth must be a positive integer"):
+            generate(f"--every-nth 0 postgresql {data_file}")
+
+    def test_every_nth_negative_raises(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}]')
+        with pytest.raises(ValueError, match="--every-nth must be a positive integer"):
+            generate(f"--every-nth -3 postgresql {data_file}")
+
+
+class TestCountOnly:
+    def test_count_only_prints_total_and_skips_ddl(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}, {"id": 2}, {"id": 3}]')
+        out = io.StringIO()
+        generate(f"postgresql {data_file} --count-only", file=out)
+        output = out.getvalue()
+        assert "CREATE TABLE" not in output
+        assert "TOTAL: 3" in output
+
+    def test_count_only_ignores_inserts_flag(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}]')
+        out = io.StringIO()
+        generate(f"-i postgresql {data_file} --count-only", file=out)
+        assert "INSERT INTO" not in out.getvalue()
+
+    def test_count_only_blocks_pickle_extension(self, tmp_path):
+        bad = tmp_path / "data.pickle"
+        bad.write_bytes(b"not really pickle data")
+        with pytest.raises(Exception, match="not allowed for security reasons"):
+            generate(f"postgresql {bad} --count-only")
 
 
 # ---------------------------------------------------------------------------

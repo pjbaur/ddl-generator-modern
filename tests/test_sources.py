@@ -35,6 +35,16 @@ try:
 except ImportError:
     sqlalchemy = None
 
+try:
+    import openpyxl
+except ImportError:
+    openpyxl = None
+
+try:
+    from pymongo.collection import Collection as MongoCollection
+except ImportError:
+    MongoCollection = None
+
 from ddlgenerator.sources import (
     NamedIter,
     ParseException,
@@ -45,6 +55,7 @@ from ddlgenerator.sources import (
     _json_loader,
     _ordered_yaml_load,
     _table_score,
+    count_sqlalchemy_tables,
     filename_from_url,
     sqlalchemy_table_sources,
 )
@@ -526,6 +537,120 @@ class TestSourceLimit:
         src = Source(iter(data), limit=3)
         result = list(src)
         assert len(result) == 3
+
+
+# ---------------------------------------------------------------------------
+# Source class - Every Nth
+# ---------------------------------------------------------------------------
+class TestSourceEveryNth:
+    def test_every_nth_keeps_multiples(self):
+        data = [{"id": i} for i in range(1, 11)]  # ids 1..10
+        src = Source(iter(data), every_nth=3)
+        result = list(src)
+        assert [r["id"] for r in result] == [3, 6, 9]
+
+    def test_every_nth_one_keeps_all_rows(self):
+        data = [{"id": i} for i in range(5)]
+        src = Source(iter(data), every_nth=1)
+        assert len(list(src)) == 5
+
+    def test_every_nth_combined_with_limit_caps_surviving_rows(self):
+        data = [{"id": i} for i in range(1, 21)]  # ids 1..20
+        src = Source(iter(data), every_nth=2, limit=3)
+        result = list(src)
+        # every_nth=2 alone yields ids 2,4,...,20 (10 rows); limit=3 caps to the first 3 surviving
+        assert [r["id"] for r in result] == [2, 4, 6]
+
+    def test_every_nth_zero_raises(self):
+        with pytest.raises(ValueError, match="every_nth must be a positive integer"):
+            Source(iter([{"id": 1}]), every_nth=0)
+
+    def test_every_nth_negative_raises(self):
+        with pytest.raises(ValueError, match="every_nth must be a positive integer"):
+            Source(iter([{"id": 1}]), every_nth=-1)
+
+    def test_every_nth_on_empty_source_yields_nothing(self):
+        src = Source(iter([]), every_nth=3)
+        assert list(src) == []
+
+
+# ---------------------------------------------------------------------------
+# Source.count
+# ---------------------------------------------------------------------------
+class TestSourceCount:
+    def test_counts_json_file(self):
+        pairs = Source.count(here("menu.json"))
+        assert sum(n for (_name, n) in pairs) == 3
+
+    def test_counts_csv_file(self):
+        pairs = Source.count(here("animals.csv"))
+        assert sum(n for (_name, n) in pairs) == 3
+
+    def test_count_ignores_limit_and_every_nth_by_design(self):
+        """Source.count() takes no limit/every_nth kwargs -- it always reports the true total."""
+        import inspect
+        sig = inspect.signature(Source.count)
+        assert "limit" not in sig.parameters
+        assert "every_nth" not in sig.parameters
+
+    def test_counts_glob_per_file(self, tmp_path):
+        (tmp_path / "a.json").write_text('[{"id": 1}, {"id": 2}]')
+        (tmp_path / "b.json").write_text('[{"id": 1}]')
+        pairs = Source.count(str(tmp_path / "*.json"))
+        assert len(pairs) == 2
+        assert sum(n for (_name, n) in pairs) == 3
+
+    @pytest.mark.skipif(openpyxl is None, reason="openpyxl not installed")
+    def test_counts_xlsx_without_full_materialization(self, tmp_path, monkeypatch):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["id", "name"])
+        for i in range(5):
+            sheet.append([i, f"name{i}"])
+        path = tmp_path / "data.xlsx"
+        workbook.save(path)
+
+        def boom(*args, **kwargs):
+            raise AssertionError("count-only must not build the full per-row list")
+        monkeypatch.setattr(Source, "_source_is_xlsx_worksheet", boom)
+
+        pairs = Source.count(str(path))
+        assert sum(n for (_name, n) in pairs) == 5
+
+    @pytest.mark.skipif(MongoCollection is None, reason="pymongo not installed")
+    def test_counts_mongo_via_count_documents(self):
+        mock_collection = MagicMock(spec=MongoCollection)
+        mock_collection.name = "things"
+        mock_collection.count_documents.return_value = 42
+
+        pairs = Source.count(mock_collection)
+
+        assert pairs == [("things", 42)]
+        mock_collection.find.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# count_sqlalchemy_tables
+# ---------------------------------------------------------------------------
+@pytest.mark.skipif(sqlalchemy is None, reason="sqlalchemy not installed")
+class TestCountSqlalchemyTables:
+    def test_uses_select_count_not_meta_bind(self, tmp_path):
+        """
+        Regression guard: sqlalchemy.MetaData() has no .bind attribute under
+        SQLAlchemy 2.x, so count_sqlalchemy_tables must build its own engine/
+        connection (like sqlalchemy_table_sources does) rather than relying
+        on meta.bind, unlike Source._source_is_sqlalchemy_metadata.
+        """
+        db_path = tmp_path / "test.db"
+        engine = sqlalchemy.create_engine(f"sqlite:///{db_path}")
+        with engine.connect() as connection:
+            connection.execute(sqlalchemy.text("CREATE TABLE t (id INTEGER, name TEXT)"))
+            connection.execute(sqlalchemy.text("INSERT INTO t VALUES (1, 'a'), (2, 'b')"))
+            connection.commit()
+
+        results = count_sqlalchemy_tables(f"sqlite:///{db_path}")
+
+        assert results == [("t", 2)]
 
 
 # ---------------------------------------------------------------------------
