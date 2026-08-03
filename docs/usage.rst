@@ -98,8 +98,19 @@ Options
 ``--no-creates``
     Do not include CREATE TABLE statements
 
+``--count-only``
+    Report row counts per source and skip DDL/INSERT generation. Always
+    reports the true total, ignoring ``--limit``/``--every-nth``. Cheap for
+    xlsx/SQLAlchemy/MongoDB sources; requires a full read for CSV/JSON/YAML/
+    HTML/``.xls`` sources.
+
 ``--limit``
     Maximum number of rows to read from each source
+
+``--every-nth``
+    Sample every Nth row instead of reading all rows (e.g. ``--every-nth 3``
+    keeps rows 3, 6, 9, ...). Combines with ``--limit`` by striding first,
+    then capping the surviving rows.
 
 ``-c``, ``--cushion``
     Extra length to pad column sizes

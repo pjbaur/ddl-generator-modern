@@ -96,7 +96,11 @@ Options
       -d, --drops           Include DROP TABLE statements
       -i, --inserts         Include INSERT statements
       --no-creates          Do not include CREATE TABLE statements
+      --count-only          Report row counts per source and skip DDL/INSERT
+                            generation
       --limit LIMIT         Max number of rows to read from each source file
+      --every-nth EVERY_NTH
+                            Sample every Nth row instead of reading all rows
       -c CUSHION, --cushion CUSHION
                             Extra length to pad column sizes with
       --save-metadata-to FILENAME
