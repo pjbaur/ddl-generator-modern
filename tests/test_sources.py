@@ -653,6 +653,21 @@ class TestSourceSampleK:
         src = Source(iter(data), sample_k=4)
         assert len(list(src)) == 4
 
+    def test_sample_k_applies_per_matched_file_in_glob(self, tmp_path):
+        (tmp_path / "a.json").write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(1, 21)) + ']'
+        )
+        (tmp_path / "b.json").write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(101, 121)) + ']'
+        )
+        src = Source(str(tmp_path / "*.json"), sample_k=3, seed=5)
+        result = list(src)
+        assert len(result) == 6  # 3 from each of the two matched files
+        from_a = [r["id"] for r in result if r["id"] < 100]
+        from_b = [r["id"] for r in result if r["id"] >= 100]
+        assert len(from_a) == 3
+        assert len(from_b) == 3
+
 
 # ---------------------------------------------------------------------------
 # Source.count

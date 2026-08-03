@@ -647,9 +647,11 @@ class Source:
 
     def _multiple_sources(self, sources: Iterable) -> None:
         """Combine multiple sources into one iterator."""
-        subsources = [Source(s, limit=self.limit, every_nth=self.every_nth) for s in sources]
+        subsources = [Source(s, limit=self.limit, every_nth=self.every_nth,
+                             sample_k=self.sample_k, seed=self.seed) for s in sources]
         self.limit = None  # limit already applied to subsources
         self.every_nth = None  # stride already applied to subsources
+        self.sample_k = None  # reservoir sampling already applied to subsources
         self.generator = itertools.chain.from_iterable(subsources)
 
     def __iter__(self) -> 'Source':
