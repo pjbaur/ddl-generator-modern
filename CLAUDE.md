@@ -39,7 +39,7 @@ pytest --cov=ddlgenerator --cov-report=term-missing
 
 # Lint
 ruff check ddlgenerator tests
-flake8 ddlgenerator tests --max-line-length=120 --ignore=E501,W503
+flake8 ddlgenerator tests
 ```
 
 ## CLI Usage

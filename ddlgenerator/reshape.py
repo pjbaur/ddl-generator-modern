@@ -161,7 +161,7 @@ def unnest_child_dict(parent: dict, key: str, parent_name: str = '') -> None:
         new_field_names = ['{}_{}'.format(key, child_key.strip('_')) for child_key in val]
         overlap = (set(new_field_names) & set(parent)) - set(id or [])
         if overlap:
-            logging.error("Could not unnest child {}; {} already present in {} (child key: {})".format(name, ','.join(overlap), parent_name, key))
+            logging.error("Could not unnest child {}; {} already present in {} (child key: {})".format(name, ','.join(overlap), parent_name, key))  # noqa: E501
             return
         for (child_key, child_val) in val.items():
             new_field_name = '{}_{}'.format(key, child_key.strip('_'))

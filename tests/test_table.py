@@ -384,7 +384,7 @@ class TestTypeInference:
         data = [{"val": 1}, {"val": 2}]
         tbl = Table(data, table_name="test_int")
         import sqlalchemy as sa
-        assert isinstance(tbl.columns["val"]["satype"], type) and issubclass(tbl.columns["val"]["satype"], sa.Integer) or isinstance(tbl.columns["val"]["satype"], sa.Integer)
+        assert isinstance(tbl.columns["val"]["satype"], type) and issubclass(tbl.columns["val"]["satype"], sa.Integer) or isinstance(tbl.columns["val"]["satype"], sa.Integer)  # noqa: E501
 
     def test_string_column(self):
         data = [{"val": "hello"}, {"val": "world"}]
