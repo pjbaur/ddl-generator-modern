@@ -582,7 +582,8 @@ CREATE TABLE menu (
       <div class="code">
         <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">usage</span><button class="copy" data-copy>copy</button></div>
 <pre><code>ddlgenerator [-h] [-k KEY] [--force-key] [-r] [-u] [-t] [-d] [-i]
-             [--no-creates] [--limit LIMIT] [-c CUSHION]
+             [--no-creates] [--count-only] [--limit LIMIT] [--every-nth EVERY_NTH]
+             [--sample-k SAMPLE_K] [--seed SEED] [-c CUSHION]
              [--save-metadata-to FILENAME] [--use-metadata-from FILENAME] [-l LOG]
              dialect datafile [datafile ...]</code></pre>
       </div>
@@ -601,7 +602,11 @@ CREATE TABLE menu (
           <tr><td><code>--force-key</code></td><td>Give <em>every</em> table a primary key, even if none was otherwise required.</td></tr>
           <tr><td><code>-r, --reorder</code></td><td>Reorder columns alphabetically, with the key column first.</td></tr>
           <tr><td><code>-c, --cushion N</code></td><td>Pad variable-length column sizes with extra headroom.</td></tr>
+          <tr><td><code>--count-only</code></td><td>Report the true row count per source and exit — no DDL/INSERT generation. Ignores <code>--limit</code>/<code>--every-nth</code>/<code>--sample-k</code>/<code>--seed</code>. See <a href="#sampling">Sampling flags</a>.</td></tr>
           <tr><td><code>--limit N</code></td><td>Read at most <code>N</code> rows from each source (affects inference).</td></tr>
+          <tr><td><code>--every-nth N</code></td><td>Keep rows <code>N, 2N, 3N, …</code> instead of every row. Combines with <code>--limit</code> (strides first, then caps). See <a href="#sampling">Sampling flags</a>.</td></tr>
+          <tr><td><code>--sample-k K</code></td><td>Reservoir-sample exactly <code>K</code> rows per source (Algorithm R) — an unbiased random sample without a full read. Mutually exclusive with <code>--limit</code>/<code>--every-nth</code>. See <a href="#sampling">Sampling flags</a>.</td></tr>
+          <tr><td><code>--seed N</code></td><td>Random seed for <code>--sample-k</code> reproducibility. Optional; requires <code>--sample-k</code>. See <a href="#sampling">Sampling flags</a>.</td></tr>
           <tr><td><code>--save-metadata-to F</code></td><td>Save the inferred structure to <code>F</code> so later runs can skip re-analysis. (Auto-appends <code>.yaml</code>.)</td></tr>
           <tr><td><code>--use-metadata-from F</code></td><td>Reuse a previously saved structure instead of re-inferring.</td></tr>
           <tr><td><code>-l, --log LEVEL</code></td><td>Log verbosity: <code>DEBUG INFO WARN ERROR CRITICAL</code>. Default <code>WARN</code>.</td></tr>
@@ -948,6 +953,70 @@ INSERT INTO animals (name, species, kg, notes) VALUES ('Emily', 'salamander', 0.
         restore time, not baked into the file. Run step 2 with the same flags you used in step 1 so the
         restored widths match. Child tables are saved under <code class="inline">children:</code> and
         restored with their foreign keys intact.</p>
+      </div>
+
+      <h3 id="sampling">Sampling flags — <code>--count-only</code>, <code>--every-nth</code>, <code>--sample-k</code></h3>
+      <p>Before picking a sample size, find out how big a source actually is. <code class="inline">--count-only</code>
+      reports the true row count per source and exits — no DDL or INSERTs are generated, and it always counts
+      every row regardless of any other sampling flag:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span><button class="copy" data-copy>copy</button></div>
+<pre><code>$ ddlgenerator --count-only postgresql orders.csv</code></pre>
+      </div>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">text</span></div>
+<pre><code>orders: 6
+TOTAL: 6</code></pre>
+      </div>
+
+      <p><code class="inline">--every-nth N</code> keeps a deterministic stride of rows (<code class="inline">N,
+      2N, 3N, …</code>) instead of reading everything — cheap and repeatable, but not a random sample:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span><button class="copy" data-copy>copy</button></div>
+<pre><code>$ ddlgenerator -i --every-nth 2 postgresql orders.csv</code></pre>
+      </div>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">sql · postgresql</span></div>
+<pre><code>CREATE TABLE orders (
+	id INTEGER NOT NULL,
+	customer VARCHAR(8) NOT NULL,
+	total DECIMAL(5, 2) NOT NULL
+);
+
+INSERT INTO orders (id, customer, total) VALUES (2, 'Gertrude', 312.70);
+INSERT INTO orders (id, customer, total) VALUES (4, 'Beatrice', 18.50);
+INSERT INTO orders (id, customer, total) VALUES (6, 'Doreen', 9.99);</code></pre>
+      </div>
+
+      <p>For an unbiased random sample instead, <code class="inline">--sample-k K</code> reservoir-samples
+      exactly <code class="inline">K</code> rows (Algorithm R) in a single pass, with no need to know the
+      source's total row count upfront. Add <code class="inline">--seed</code> to make the sample
+      reproducible:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span><button class="copy" data-copy>copy</button></div>
+<pre><code>$ ddlgenerator -i --sample-k 3 --seed 7 postgresql orders.csv</code></pre>
+      </div>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">sql · postgresql</span></div>
+<pre><code>CREATE TABLE orders (
+	id INTEGER NOT NULL,
+	customer VARCHAR(8) NOT NULL,
+	total DECIMAL(4, 2) NOT NULL
+);
+
+INSERT INTO orders (id, customer, total) VALUES (1, 'Alfred', 22.00);
+INSERT INTO orders (id, customer, total) VALUES (4, 'Beatrice', 18.50);
+INSERT INTO orders (id, customer, total) VALUES (5, 'Clive', 44.10);</code></pre>
+      </div>
+
+      <div class="callout warn">
+        <strong><code class="inline">--sample-k</code> is exclusive with <code class="inline">--limit</code>/<code class="inline">--every-nth</code></strong>
+        <p>Combining any two of <code class="inline">--limit</code>, <code class="inline">--every-nth</code>, and
+        <code class="inline">--sample-k</code> raises an error — pick one strategy per run.
+        <code class="inline">--seed</code> requires <code class="inline">--sample-k</code>. When a datafile
+        argument expands to multiple files (a glob) or multiple spreadsheet sheets, each one gets the seed
+        offset by its position, so the sampled rows are independent per file/sheet rather than landing on
+        the same relative positions in each.</p>
       </div>
     </section>
 
