@@ -42,6 +42,12 @@ ruff check ddlgenerator tests
 flake8 ddlgenerator tests
 ```
 
+W503 (line break before binary operator) is ignored in `.flake8`
+(ruff never implements W503/W504, so nothing to set there). It
+contradicts its sibling W504 (break after operator) — both can't be
+satisfied at once, and PEP 8 now prefers break-before-operator, so
+W503 is the one to disable.
+
 ## CLI Usage
 
 ```bash
