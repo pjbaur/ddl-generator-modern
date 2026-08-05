@@ -167,9 +167,10 @@ def _eval_csv(target: IO[str], fieldnames: Any = None, **kwargs: Any) -> Iterato
 
 def _table_score(tbl: Any) -> int:
     """Score an HTML table by how likely it contains useful data."""
-    n_rows = len((tbl.tbody or tbl).find_all('tr', recursive=False))
+    body = tbl.tbody or tbl
+    n_rows = len(body.find_all('tr', recursive=False))
     n_headings = len((tbl.thead or tbl).tr.find_all('th', recursive=False))
-    n_columns = len(tbl.tr.find_all('td', recursive=False))
+    n_columns = len(body.tr.find_all('td', recursive=False))
     score = n_rows * 3 + n_headings * 10 + n_columns
     if tbl.thead:
         score += 3
