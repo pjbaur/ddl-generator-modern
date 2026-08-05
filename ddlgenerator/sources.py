@@ -656,8 +656,13 @@ class Source:
 
     def _multiple_sources(self, sources: Iterable) -> None:
         """Combine multiple sources into one iterator."""
+        # Algorithm R depends only on row index, not content, so forwarding
+        # the same seed to every subsource would pick identical positional
+        # indices from each. Offset by subsource index for independent samples.
         subsources = [Source(s, limit=self.limit, every_nth=self.every_nth,
-                             sample_k=self.sample_k, seed=self.seed) for s in sources]
+                             sample_k=self.sample_k,
+                             seed=None if self.seed is None else self.seed + idx)
+                      for idx, s in enumerate(sources)]
         self.limit = None  # limit already applied to subsources
         self.every_nth = None  # stride already applied to subsources
         self.sample_k = None  # reservoir sampling already applied to subsources

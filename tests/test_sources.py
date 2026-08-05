@@ -674,6 +674,23 @@ class TestSourceSampleK:
         assert len(from_a) == 3
         assert len(from_b) == 3
 
+    def test_sample_k_seed_offset_gives_independent_positions_per_subsource(self, tmp_path):
+        """Same seed forwarded unmodified to every subsource would make
+        Algorithm R (index-driven, not content-driven) pick identical
+        relative positions from each same-length file. Each subsource's
+        seed is offset by its index so positions differ instead."""
+        (tmp_path / "a.json").write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(1, 21)) + ']'
+        )
+        (tmp_path / "b.json").write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(101, 121)) + ']'
+        )
+        src = Source(str(tmp_path / "*.json"), sample_k=3, seed=5)
+        result = list(src)
+        relative_a = sorted(r["id"] - 1 for r in result if r["id"] < 100)
+        relative_b = sorted(r["id"] - 101 for r in result if r["id"] >= 100)
+        assert relative_a != relative_b
+
 
 # ---------------------------------------------------------------------------
 # Source.count

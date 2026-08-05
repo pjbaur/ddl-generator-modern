@@ -128,17 +128,17 @@ isn't mistaken for an oversight later.
   `--sample-k K` reservoir-samples K rows from *each* matched file/sheet
   independently, not K rows total across all of them combined — matching
   the existing "Max number of rows to read from each source file" semantics
-  `--limit`/`--every-nth` already document. Every subsource receives the
-  same `seed` value (unchanged, same as `limit`/`every_nth` are copied
-  unchanged). Algorithm R's swap decisions depend only on a row's
-  positional index and the RNG stream, never on row content — so two
-  same-length subsources given the same seed will select the *same
-  positional indices* from each, regardless of what data occupies those
-  positions. If the data has positional structure (e.g. files sorted by
-  region, or appended chronologically with correlated positions), this can
-  yield correlated rather than independent samples across files. This only
-  happens when a user explicitly passes `--seed`; without it, each `Source`
-  gets `random.Random(None)` (OS entropy) and samples are independent.
+  `--limit`/`--every-nth` already document. Unlike `limit`/`every_nth`
+  (copied unchanged), each subsource's `seed` is offset by its index in the
+  source list (`seed + idx`, `idx` from `enumerate`), not the raw `seed`
+  value. Algorithm R's swap decisions depend only on a row's positional
+  index and the RNG stream, never on row content — so forwarding the same
+  seed unmodified would make two same-length subsources select the *same
+  positional indices* from each. The offset gives each subsource its own
+  RNG stream, so samples are independent across files even when `--seed`
+  is passed explicitly. Unseeded runs (`seed=None`) are left alone —
+  `None + idx` isn't computed, each subsource still gets
+  `random.Random(None)` (OS entropy).
 
 ### `ddlgenerator/ddlgenerator.py` — `Table`
 

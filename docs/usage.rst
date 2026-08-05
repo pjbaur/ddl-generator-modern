@@ -122,10 +122,10 @@ Options
 
 ``--seed``
     Random seed for ``--sample-k`` reproducibility. Optional; omit for an
-    unseeded (non-reproducible) sample. Requires ``--sample-k``. When
-    sampling multiple same-length files/sheets with the same seed, each
-    receives the same sampled positions -- omit ``--seed`` for independent
-    samples across files.
+    unseeded (non-reproducible) sample. Requires ``--sample-k``. When a
+    source expands to multiple files/sheets, each subsource gets the seed
+    offset by its index (``seed + 0``, ``seed + 1``, ...) so samples stay
+    independent across files rather than picking identical positions.
 
 ``-c``, ``--cushion``
     Extra length to pad column sizes
