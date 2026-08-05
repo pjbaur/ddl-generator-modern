@@ -339,6 +339,9 @@ class Table:
         reorder: bool = False,
         loglevel: int = logging.WARNING,
         limit: int | None = None,
+        every_nth: int | None = None,
+        sample_k: int | None = None,
+        seed: int | None = None,
     ) -> None:
         """
         Initialize a Table and load its data.
@@ -373,7 +376,8 @@ class Table:
             # Validate URLs for SSRF prevention before passing to Source
             if isinstance(data, str) and url_utils.is_url(data):
                 url_utils.validate_url(data)
-            self.data = Source(data, limit=limit)
+            self.data = Source(data, limit=limit, every_nth=every_nth,
+                               sample_k=sample_k, seed=seed)
         else:
             try:
                 self.data = iter(data)

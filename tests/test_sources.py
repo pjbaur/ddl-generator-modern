@@ -35,6 +35,16 @@ try:
 except ImportError:
     sqlalchemy = None
 
+try:
+    import openpyxl
+except ImportError:
+    openpyxl = None
+
+try:
+    from pymongo.collection import Collection as MongoCollection
+except ImportError:
+    MongoCollection = None
+
 from ddlgenerator.sources import (
     NamedIter,
     ParseException,
@@ -45,6 +55,7 @@ from ddlgenerator.sources import (
     _json_loader,
     _ordered_yaml_load,
     _table_score,
+    count_sqlalchemy_tables,
     filename_from_url,
     sqlalchemy_table_sources,
 )
@@ -419,6 +430,26 @@ class TestSourceExcel:
         assert not isinstance(exc_info.value, RecursionError)
 
 
+@pytest.mark.skipif(openpyxl is None, reason="openpyxl not installed")
+class TestSourceLocalXlsx:
+    def test_local_xlsx_path_is_readable(self, tmp_path):
+        """A local .xlsx path used to fall through to the generic path
+        loader (whose deserializer table has no .xlsx entry) because the
+        file-path dispatch only special-cased '.xls', not '.xlsx'. Only
+        URL-fetched .xlsx worked. Regression test for that dispatch gap."""
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["id", "name"])
+        sheet.append([1, "alice"])
+        sheet.append([2, "bob"])
+        path = tmp_path / "data.xlsx"
+        workbook.save(path)
+
+        rows = list(Source(str(path)))
+        assert len(rows) == 2
+        assert rows[0]["name"] == "alice"
+
+
 class TestSourceSelfMatchingGlob:
     def test_directory_source_does_not_recurse(self, tmp_path):
         """glob() matches a directory by its own name; expanding that as a
@@ -529,6 +560,201 @@ class TestSourceLimit:
 
 
 # ---------------------------------------------------------------------------
+# Source class - Every Nth
+# ---------------------------------------------------------------------------
+class TestSourceEveryNth:
+    def test_every_nth_keeps_multiples(self):
+        data = [{"id": i} for i in range(1, 11)]  # ids 1..10
+        src = Source(iter(data), every_nth=3)
+        result = list(src)
+        assert [r["id"] for r in result] == [3, 6, 9]
+
+    def test_every_nth_one_keeps_all_rows(self):
+        data = [{"id": i} for i in range(5)]
+        src = Source(iter(data), every_nth=1)
+        assert len(list(src)) == 5
+
+    def test_every_nth_combined_with_limit_caps_surviving_rows(self):
+        data = [{"id": i} for i in range(1, 21)]  # ids 1..20
+        src = Source(iter(data), every_nth=2, limit=3)
+        result = list(src)
+        # every_nth=2 alone yields ids 2,4,...,20 (10 rows); limit=3 caps to the first 3 surviving
+        assert [r["id"] for r in result] == [2, 4, 6]
+
+    def test_every_nth_zero_raises(self):
+        with pytest.raises(ValueError, match="every_nth must be a positive integer"):
+            Source(iter([{"id": 1}]), every_nth=0)
+
+    def test_every_nth_negative_raises(self):
+        with pytest.raises(ValueError, match="every_nth must be a positive integer"):
+            Source(iter([{"id": 1}]), every_nth=-1)
+
+    def test_every_nth_on_empty_source_yields_nothing(self):
+        src = Source(iter([]), every_nth=3)
+        assert list(src) == []
+
+
+# ---------------------------------------------------------------------------
+# Source class - sample_k (reservoir sampling)
+# ---------------------------------------------------------------------------
+class TestSourceSampleKValidation:
+    def test_sample_k_zero_raises(self):
+        with pytest.raises(ValueError, match="sample_k must be a positive integer"):
+            Source(iter([{"id": 1}]), sample_k=0)
+
+    def test_sample_k_negative_raises(self):
+        with pytest.raises(ValueError, match="sample_k must be a positive integer"):
+            Source(iter([{"id": 1}]), sample_k=-1)
+
+    def test_seed_without_sample_k_raises(self):
+        with pytest.raises(ValueError, match="seed requires sample_k"):
+            Source(iter([{"id": 1}]), seed=42)
+
+    def test_sample_k_combined_with_limit_raises(self):
+        with pytest.raises(ValueError, match="sample_k cannot be combined with limit or every_nth"):
+            Source(iter([{"id": 1}]), sample_k=1, limit=1)
+
+    def test_sample_k_combined_with_every_nth_raises(self):
+        with pytest.raises(ValueError, match="sample_k cannot be combined with limit or every_nth"):
+            Source(iter([{"id": 1}]), sample_k=1, every_nth=1)
+
+
+class TestSourceSampleK:
+    def test_sample_k_returns_exactly_k_rows_when_n_greater_than_k(self):
+        data = [{"id": i} for i in range(1, 101)]  # ids 1..100
+        src = Source(iter(data), sample_k=10, seed=42)
+        result = list(src)
+        assert len(result) == 10
+
+    def test_sample_k_is_deterministic_with_same_seed(self):
+        data = [{"id": i} for i in range(1, 101)]
+        result_a = list(Source(iter(data), sample_k=10, seed=42))
+        result_b = list(Source(iter(data), sample_k=10, seed=42))
+        assert [r["id"] for r in result_a] == [r["id"] for r in result_b]
+
+    def test_sample_k_keeps_all_rows_when_n_less_than_k(self):
+        data = [{"id": i} for i in range(1, 6)]  # 5 rows
+        src = Source(iter(data), sample_k=10, seed=1)
+        result = list(src)
+        assert [r["id"] for r in result] == [1, 2, 3, 4, 5]
+
+    def test_sample_k_keeps_all_rows_when_n_equals_k(self):
+        data = [{"id": i} for i in range(1, 11)]  # 10 rows
+        src = Source(iter(data), sample_k=10, seed=1)
+        result = list(src)
+        assert [r["id"] for r in result] == list(range(1, 11))
+
+    def test_sample_k_preserves_original_relative_order(self):
+        data = [{"id": i} for i in range(1, 51)]
+        src = Source(iter(data), sample_k=5, seed=7)
+        result = [r["id"] for r in list(src)]
+        assert result == sorted(result)
+
+    def test_sample_k_on_empty_source_yields_nothing(self):
+        src = Source(iter([]), sample_k=3, seed=1)
+        assert list(src) == []
+
+    def test_sample_k_without_seed_still_returns_k_rows(self):
+        data = [{"id": i} for i in range(1, 21)]
+        src = Source(iter(data), sample_k=4)
+        assert len(list(src)) == 4
+
+    def test_sample_k_applies_per_matched_file_in_glob(self, tmp_path):
+        (tmp_path / "a.json").write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(1, 21)) + ']'
+        )
+        (tmp_path / "b.json").write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(101, 121)) + ']'
+        )
+        src = Source(str(tmp_path / "*.json"), sample_k=3, seed=5)
+        result = list(src)
+        assert len(result) == 6  # 3 from each of the two matched files
+        from_a = [r["id"] for r in result if r["id"] < 100]
+        from_b = [r["id"] for r in result if r["id"] >= 100]
+        assert len(from_a) == 3
+        assert len(from_b) == 3
+
+
+# ---------------------------------------------------------------------------
+# Source.count
+# ---------------------------------------------------------------------------
+class TestSourceCount:
+    def test_counts_json_file(self):
+        pairs = Source.count(here("menu.json"))
+        assert sum(n for (_name, n) in pairs) == 3
+
+    def test_counts_csv_file(self):
+        pairs = Source.count(here("animals.csv"))
+        assert sum(n for (_name, n) in pairs) == 3
+
+    def test_count_ignores_limit_and_every_nth_by_design(self):
+        """Source.count() takes no limit/every_nth kwargs -- it always reports the true total."""
+        import inspect
+        sig = inspect.signature(Source.count)
+        assert "limit" not in sig.parameters
+        assert "every_nth" not in sig.parameters
+
+    def test_counts_glob_per_file(self, tmp_path):
+        (tmp_path / "a.json").write_text('[{"id": 1}, {"id": 2}]')
+        (tmp_path / "b.json").write_text('[{"id": 1}]')
+        pairs = Source.count(str(tmp_path / "*.json"))
+        assert len(pairs) == 2
+        assert sum(n for (_name, n) in pairs) == 3
+
+    @pytest.mark.skipif(openpyxl is None, reason="openpyxl not installed")
+    def test_counts_xlsx_without_full_materialization(self, tmp_path, monkeypatch):
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["id", "name"])
+        for i in range(5):
+            sheet.append([i, f"name{i}"])
+        path = tmp_path / "data.xlsx"
+        workbook.save(path)
+
+        def boom(*args, **kwargs):
+            raise AssertionError("count-only must not build the full per-row list")
+        monkeypatch.setattr(Source, "_source_is_xlsx_worksheet", boom)
+
+        pairs = Source.count(str(path))
+        assert sum(n for (_name, n) in pairs) == 5
+
+    @pytest.mark.skipif(MongoCollection is None, reason="pymongo not installed")
+    def test_counts_mongo_via_count_documents(self):
+        mock_collection = MagicMock(spec=MongoCollection)
+        mock_collection.name = "things"
+        mock_collection.count_documents.return_value = 42
+
+        pairs = Source.count(mock_collection)
+
+        assert pairs == [("things", 42)]
+        mock_collection.find.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# count_sqlalchemy_tables
+# ---------------------------------------------------------------------------
+@pytest.mark.skipif(sqlalchemy is None, reason="sqlalchemy not installed")
+class TestCountSqlalchemyTables:
+    def test_uses_select_count_not_meta_bind(self, tmp_path):
+        """
+        Regression guard: sqlalchemy.MetaData() has no .bind attribute under
+        SQLAlchemy 2.x, so count_sqlalchemy_tables must build its own engine/
+        connection (like sqlalchemy_table_sources does) rather than relying
+        on meta.bind, unlike Source._source_is_sqlalchemy_metadata.
+        """
+        db_path = tmp_path / "test.db"
+        engine = sqlalchemy.create_engine(f"sqlite:///{db_path}")
+        with engine.connect() as connection:
+            connection.execute(sqlalchemy.text("CREATE TABLE t (id INTEGER, name TEXT)"))
+            connection.execute(sqlalchemy.text("INSERT INTO t VALUES (1, 'a'), (2, 'b')"))
+            connection.commit()
+
+        results = count_sqlalchemy_tables(f"sqlite:///{db_path}")
+
+        assert results == [("t", 2)]
+
+
+# ---------------------------------------------------------------------------
 # sqlalchemy_table_sources
 # ---------------------------------------------------------------------------
 @pytest.mark.skipif(sqlalchemy is None, reason="sqlalchemy not installed")
@@ -553,6 +779,73 @@ class TestSqlalchemyTableSources:
 
         mock_create_engine.assert_called_once_with("sqlite:///test.db")
         mock_meta_inst.reflect.assert_called_once()
+
+    def test_reads_rows_from_a_real_engine(self, tmp_path):
+        """Regression guard: sqlalchemy.MetaData() has no .bind attribute
+        under SQLAlchemy 2.x, so Source._source_is_sqlalchemy_metadata must
+        be given the engine explicitly rather than reading meta.bind. The
+        mocked test above never exercises real Source construction, so it
+        can't catch this -- this test must hit a real engine/connection."""
+        db_path = tmp_path / "test.db"
+        engine = sqlalchemy.create_engine(f"sqlite:///{db_path}")
+        with engine.connect() as connection:
+            connection.execute(sqlalchemy.text("CREATE TABLE t (id INTEGER, name TEXT)"))
+            connection.execute(sqlalchemy.text("INSERT INTO t VALUES (1, 'a'), (2, 'b')"))
+            connection.commit()
+
+        sources = list(sqlalchemy_table_sources(f"sqlite:///{db_path}"))
+
+        assert len(sources) == 1
+        rows = list(sources[0])
+        assert [tuple(row) for row in rows] == [(1, 'a'), (2, 'b')]
+
+    def test_limit_applies_to_sqlalchemy_url_source(self, tmp_path):
+        """Regression guard: sqlalchemy_table_sources previously never
+        received limit/every_nth at all, so --limit/--every-nth were
+        silently no-ops for sqlalchemy:// URLs."""
+        db_path = tmp_path / "test.db"
+        engine = sqlalchemy.create_engine(f"sqlite:///{db_path}")
+        with engine.connect() as connection:
+            connection.execute(sqlalchemy.text("CREATE TABLE t (id INTEGER)"))
+            connection.execute(sqlalchemy.text(
+                "INSERT INTO t VALUES (1), (2), (3), (4), (5)"
+            ))
+            connection.commit()
+
+        sources = list(sqlalchemy_table_sources(f"sqlite:///{db_path}", limit=2))
+
+        assert len(list(sources[0])) == 2
+
+    def test_every_nth_applies_to_sqlalchemy_url_source(self, tmp_path):
+        """Same regression guard as test_limit_applies_to_sqlalchemy_url_source,
+        for --every-nth."""
+        db_path = tmp_path / "test.db"
+        engine = sqlalchemy.create_engine(f"sqlite:///{db_path}")
+        with engine.connect() as connection:
+            connection.execute(sqlalchemy.text("CREATE TABLE t (id INTEGER)"))
+            connection.execute(sqlalchemy.text(
+                "INSERT INTO t VALUES " + ", ".join(f"({i})" for i in range(1, 11))
+            ))
+            connection.commit()
+
+        sources = list(sqlalchemy_table_sources(f"sqlite:///{db_path}", every_nth=3))
+
+        rows = list(sources[0])
+        assert [tuple(row) for row in rows] == [(3,), (6,), (9,)]
+
+    def test_sample_k_applies_to_sqlalchemy_url_source(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        engine = sqlalchemy.create_engine(f"sqlite:///{db_path}")
+        with engine.connect() as connection:
+            connection.execute(sqlalchemy.text("CREATE TABLE t (id INTEGER)"))
+            connection.execute(sqlalchemy.text(
+                "INSERT INTO t VALUES " + ", ".join(f"({i})" for i in range(1, 21))
+            ))
+            connection.commit()
+
+        sources = list(sqlalchemy_table_sources(f"sqlite:///{db_path}", sample_k=5, seed=3))
+
+        assert len(list(sources[0])) == 5
 
     def test_raises_import_error_when_sqlalchemy_none(self):
         """Should raise ImportError if sqlalchemy is not available."""

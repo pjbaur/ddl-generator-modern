@@ -98,8 +98,34 @@ Options
 ``--no-creates``
     Do not include CREATE TABLE statements
 
+``--count-only``
+    Report row counts per source and skip DDL/INSERT generation. Always
+    reports the true total, ignoring ``--limit``/``--every-nth``. Cheap for
+    xlsx/SQLAlchemy/MongoDB sources; requires a full read for CSV/JSON/YAML/
+    HTML/``.xls`` sources.
+
 ``--limit``
     Maximum number of rows to read from each source
+
+``--every-nth``
+    Sample every Nth row instead of reading all rows (e.g. ``--every-nth 3``
+    keeps rows 3, 6, 9, ...). Combines with ``--limit`` by striding first,
+    then capping the surviving rows.
+
+``--sample-k``
+    Reservoir-sample exactly K rows per source (Algorithm R) instead of
+    reading all rows. Gives an unbiased random sample without needing to
+    know the source's total row count upfront. Cannot be combined with
+    ``--limit`` or ``--every-nth``. Applies K independently per matched
+    file when a source expands to multiple files (glob patterns) or
+    multiple sheets (.xls/.xlsx).
+
+``--seed``
+    Random seed for ``--sample-k`` reproducibility. Optional; omit for an
+    unseeded (non-reproducible) sample. Requires ``--sample-k``. When
+    sampling multiple same-length files/sheets with the same seed, each
+    receives the same sampled positions -- omit ``--seed`` for independent
+    samples across files.
 
 ``-c``, ``--cushion``
     Extra length to pad column sizes

@@ -3,14 +3,16 @@ import logging
 import re
 from typing import IO, Any
 
+from ddlgenerator import url_utils
 from ddlgenerator.ddlgenerator import (
     Table,
+    _validate_data_source,
     dialect_names,
     emit_db_sequence_updates,
     sqla_head,
     sqla_inserter_call,
 )
-from ddlgenerator.sources import sqlalchemy_table_sources
+from ddlgenerator.sources import Source, count_sqlalchemy_tables, sqlalchemy_table_sources
 
 parser = argparse.ArgumentParser(description='Generate DDL based on data')
 parser.add_argument('dialect', help='SQL dialect to output', type=str.lower)
@@ -28,7 +30,15 @@ parser.add_argument('-t', '--text', action='store_true',
 parser.add_argument('-d', '--drops', action='store_true', help='Include DROP TABLE statements')
 parser.add_argument('-i', '--inserts', action='store_true', help='Include INSERT statements')
 parser.add_argument('--no-creates', action='store_true', help='Do not include CREATE TABLE statements')
+parser.add_argument('--count-only', action='store_true',
+                    help='Report row counts per source and skip DDL/INSERT generation')
 parser.add_argument('--limit', type=int, default=None, help='Max number of rows to read from each source file')
+parser.add_argument('--every-nth', type=int, default=None,
+                    help='Sample every Nth row instead of reading all rows')
+parser.add_argument('--sample-k', type=int, default=None,
+                    help='Randomly sample exactly K rows per source (reservoir sampling)')
+parser.add_argument('--seed', type=int, default=None,
+                    help='Random seed for --sample-k reproducibility')
 parser.add_argument('-c', '--cushion', type=int, default=0, help='Extra length to pad column sizes with')
 parser.add_argument('--save-metadata-to', type=str, metavar='FILENAME',
                     help='Save table definition in FILENAME for later --use-saved-metadata run')
@@ -59,7 +69,8 @@ def generate_one(tbl: Any, args: argparse.Namespace,
     table = Table(tbl, table_name=table_name, varying_length_text=args.text, uniques=args.uniques,
                   pk_name=args.key, force_pk=args.force_key, reorder=args.reorder, data_size_cushion=args.cushion,
                   save_metadata_to=args.save_metadata_to, metadata_source=args.use_metadata_from,
-                  loglevel=args.log, limit=args.limit)
+                  loglevel=args.log, limit=args.limit, every_nth=args.every_nth,
+                  sample_k=args.sample_k, seed=args.seed)
     if args.dialect.startswith('sqla'):
         if not args.no_creates:
             print(table.sqlalchemy(), file=file)
@@ -72,6 +83,38 @@ def generate_one(tbl: Any, args: argparse.Namespace,
                         creates=(not args.no_creates), drops=args.drops,
                         metadata_source=args.use_metadata_from), file=file)
     return table
+
+
+def run_count_only(args: argparse.Namespace, file: IO[str] | None = None) -> None:
+    """
+    Report row counts per source and exit without generating DDL/INSERTs.
+
+    Always reports the true total record count, ignoring --limit/--every-nth/
+    --sample-k/--seed (this mode exists to help pick a sampling value for a
+    subsequent run). xlsx, SQLAlchemy, and MongoDB sources use a cheap count;
+    CSV/JSON/YAML/HTML/xls and generator sources must be fully read to count
+    them.
+    """
+    logging.info(
+        "--count-only: xlsx, SQLAlchemy, and MongoDB sources use a cheap count; "
+        "CSV/JSON/YAML/HTML/xls and generator sources must be fully read to count them."
+    )
+    grand_total = 0
+    for datafile in args.datafile:
+        _validate_data_source(datafile)
+        if is_sqlalchemy_url.search(datafile):
+            pairs = count_sqlalchemy_tables(datafile)
+        else:
+            if url_utils.is_url(datafile):
+                url_utils.validate_url(datafile)
+            pairs = Source.count(datafile)
+        subtotal = sum(n for (_name, n) in pairs)
+        for (name, n) in pairs:
+            print(f"{name}: {n}", file=file)
+        if len(pairs) > 1:
+            print(f"{datafile} subtotal: {subtotal}", file=file)
+        grand_total += subtotal
+    print(f"TOTAL: {grand_total}", file=file)
 
 
 def generate(args: str | list[str] | None = None,
@@ -89,6 +132,17 @@ def generate(args: str | list[str] | None = None,
     parsed = parser.parse_args(args, namespace)
     set_logging(parsed)
     logging.info(str(parsed))
+    if parsed.every_nth is not None and parsed.every_nth < 1:
+        raise ValueError(f"--every-nth must be a positive integer, got {parsed.every_nth}")
+    if parsed.sample_k is not None and parsed.sample_k < 1:
+        raise ValueError(f"--sample-k must be a positive integer, got {parsed.sample_k}")
+    if parsed.sample_k is not None and (parsed.limit is not None or parsed.every_nth is not None):
+        raise ValueError("--sample-k cannot be combined with --limit or --every-nth")
+    if parsed.seed is not None and parsed.sample_k is None:
+        raise ValueError("--seed requires --sample-k")
+    if parsed.count_only:
+        run_count_only(parsed, file=file)
+        return
     if parsed.dialect in ('pg', 'pgsql', 'postgres'):
         parsed.dialect = 'postgresql'
     if parsed.dialect.startswith('dj'):
@@ -104,7 +158,10 @@ def generate(args: str | list[str] | None = None,
         if is_sqlalchemy_url.search(datafile):
             table_names_for_insert = []
             t = None
-            for tbl in sqlalchemy_table_sources(datafile):
+            for tbl in sqlalchemy_table_sources(datafile, limit=parsed.limit,
+                                                every_nth=parsed.every_nth,
+                                                sample_k=parsed.sample_k,
+                                                seed=parsed.seed):
                 t = generate_one(tbl, parsed, table_name=tbl.generator.name, file=file)
                 if t.data:
                     table_names_for_insert.append(tbl.generator.name)

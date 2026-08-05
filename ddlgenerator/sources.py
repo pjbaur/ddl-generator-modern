@@ -29,6 +29,7 @@ import itertools
 import json
 import logging
 import os.path
+import random
 import urllib.parse
 from collections import OrderedDict
 from collections.abc import Iterable, Iterator
@@ -240,6 +241,66 @@ _FALLBACK_DESERIALIZERS: list[Any] = [
 ]
 
 
+def _xlsx_header_start_row(sheet: Any, default_headings: list) -> tuple:
+    """
+    Scan an xlsx worksheet for the first non-blank row (treated as the header).
+
+    Returns (start_row, headings): start_row is the first data row (1-indexed),
+    and headings falls back to default_headings for any blank header cell, or
+    entirely if the sheet has no non-blank row. Stops at the first non-blank
+    row rather than scanning the whole sheet.
+    """
+    headings = default_headings
+    start_row = 1
+    for row_n in range(1, sheet.max_row + 1):
+        row_values = [cell.value for cell in sheet[row_n]]
+        if any(bool(v) for v in row_values):
+            headings = [heading if heading else default_heading
+                        for (heading, default_heading)
+                        in itertools.zip_longest(row_values, default_headings)]
+            start_row = row_n + 1
+            break
+    return start_row, headings
+
+
+def _count_xlsx(spreadsheet: Any, table: str = '*') -> list:
+    """
+    Count rows per xlsx worksheet without materializing row data.
+
+    Uses openpyxl's read_only ``max_row``/``max_column`` (cheap dimension-XML
+    metadata) instead of building the full per-row OrderedDict list that
+    Source._source_is_xlsx_worksheet produces.
+    """
+    if not openpyxl:
+        raise ImportError('must pip install openpyxl for .xlsx support')
+    if isinstance(spreadsheet, bytes):
+        import io
+        workbook = openpyxl.load_workbook(io.BytesIO(spreadsheet), read_only=True)
+        name = "excel"
+    else:
+        workbook = openpyxl.load_workbook(spreadsheet, read_only=True)
+        name = spreadsheet
+
+    if table == '*':
+        sheets = workbook.worksheets
+    else:
+        try:
+            sheet_idx = int(table)
+            sheets = [workbook.worksheets[sheet_idx]]
+        except ValueError:
+            sheets = [workbook[table]]
+
+    results = []
+    for sheet in sheets:
+        max_col = sheet.max_column
+        max_row = sheet.max_row
+        default_headings = [f"Col{c}" for c in range(1, max_col + 1)]
+        start_row, _ = _xlsx_header_start_row(sheet, default_headings)
+        n = max(max_row - start_row + 1, 0)
+        results.append((f"{name}-{sheet.title}", n))
+    return results
+
+
 class Source:
     """
     Universal data source that yields OrderedDict rows.
@@ -251,7 +312,7 @@ class Source:
             print(row)
 
     Supported sources:
-    - File paths: .csv, .json, .yaml, .yml, .html, .htm, .xls
+    - File paths: .csv, .json, .yaml, .yml, .html, .htm, .xls, .xlsx
     - URLs: http:// and https:// (with SSRF protection)
     - File-like objects with .read() method
     - SQLAlchemy MetaData objects
@@ -264,6 +325,21 @@ class Source:
         generator: The underlying iterator
         db_engine: SQLAlchemy engine if source is a database
         limit: Maximum rows to yield
+        every_nth: Sample every Nth row instead of yielding every row
+        sample_k: Reservoir-sample exactly this many rows instead of
+            yielding every row
+        seed: Random seed for sample_k reproducibility
+
+    ``every_nth`` selects raw 1-indexed rows N, 2N, 3N, ... from the
+    underlying stream (0-indexed ``% N == N-1``) -- e.g. every_nth=3 over
+    rows 1..9 keeps rows 3, 6, 9, not 1, 4, 7. every_nth=1 yields every row.
+    When combined with ``limit``, striding is applied first and ``limit``
+    caps the count of surviving (already-strided) rows.
+
+    ``sample_k`` reservoir-samples exactly K rows via Algorithm R, yielded
+    in their original relative order. Unlike ``limit``/``every_nth``, it
+    requires no upfront knowledge of the source's total row count and
+    cannot be combined with either.
     """
 
     table_count = 0
@@ -273,7 +349,9 @@ class Source:
     db_engine: Any
 
     def __init__(self, src: Any, limit: int | None = None,
-                 fieldnames: Any = None, table: str = '*') -> None:
+                 fieldnames: Any = None, table: str = '*',
+                 every_nth: int | None = None, engine: Any = None,
+                 sample_k: int | None = None, seed: int | None = None) -> None:
         """
         Initialize a data source.
 
@@ -282,9 +360,30 @@ class Source:
             limit: Maximum number of rows to read
             fieldnames: For CSV, override header row
             table: For Excel/SQLAlchemy, specific table/sheet name
+            every_nth: Sample every Nth row instead of reading all rows
+            engine: SQLAlchemy engine to query against, required when src is
+                a MetaData object (SA 2.x MetaData carries no engine of its
+                own -- there is no ``meta.bind`` to fall back on)
+            sample_k: Reservoir-sample exactly this many rows (Algorithm R)
+            seed: Random seed for sample_k reproducibility; requires sample_k
         """
         self.counter = 0
         self.limit = limit
+        if every_nth is not None and every_nth < 1:
+            raise ValueError(f"every_nth must be a positive integer, got {every_nth}")
+        self.every_nth = every_nth
+        self._stride_counter = 0
+        if sample_k is not None and sample_k < 1:
+            raise ValueError(f"sample_k must be a positive integer, got {sample_k}")
+        if sample_k is not None and (limit is not None or every_nth is not None):
+            raise ValueError("sample_k cannot be combined with limit or every_nth")
+        if seed is not None and sample_k is None:
+            raise ValueError("seed requires sample_k")
+        self.sample_k = sample_k
+        self.seed = seed
+        self._rng = random.Random(seed)
+        self._reservoir: list | None = None
+        self._reservoir_pos = 0
         self.table_name = f'Table{Source.table_count}'
         self.fieldnames = fieldnames
         self.db_engine = None
@@ -295,7 +394,7 @@ class Source:
 
         # SQLAlchemy MetaData
         if sqlalchemy and isinstance(src, sqlalchemy.sql.schema.MetaData):
-            self._source_is_sqlalchemy_metadata(src, table)
+            self._source_is_sqlalchemy_metadata(src, table, engine)
             return
 
         # MongoDB Collection
@@ -324,7 +423,7 @@ class Source:
         except (TypeError, ValueError):
             src_is_file = False
         if src_is_file:
-            if src.lower().endswith('.xls'):
+            if src.lower().endswith(('.xls', '.xlsx')):
                 self._source_is_excel(src, sheet=table)
             else:
                 self._source_is_path(src)
@@ -361,10 +460,19 @@ class Source:
         self.table_name = src.name
         self.generator = src.find()
 
-    def _source_is_sqlalchemy_metadata(self, meta: Any, table: str) -> None:
-        """Handle SQLAlchemy MetaData sources using SA 2.x API."""
-        self.db_engine = meta.bind
-        connection = meta.bind.connect()
+    def _source_is_sqlalchemy_metadata(self, meta: Any, table: str, engine: Any = None) -> None:
+        """Handle SQLAlchemy MetaData sources using SA 2.x API.
+
+        SA 2.x MetaData has no ``.bind`` (that was removed after 1.x), so the
+        engine to query against must be passed in explicitly.
+        """
+        if engine is None:
+            raise ValueError(
+                "Source(metadata, ...) requires engine= -- SQLAlchemy 2.x "
+                "MetaData no longer carries a bound engine"
+            )
+        self.db_engine = engine
+        connection = engine.connect()
         slct = sqlalchemy.sql.select(meta.tables[table])
         result = connection.execute(slct)
         self.generator = NamedIter(iter(result), name=table)
@@ -475,18 +583,8 @@ class Source:
         """Extract data from an Excel .xlsx worksheet (openpyxl)."""
         max_col = sheet.max_column
         max_row = sheet.max_row
-        headings = [f"Col{c}" for c in range(1, max_col + 1)]
-        start_row = 1
-
-        for row_n in range(1, max_row + 1):
-            row_values = [cell.value for cell in sheet[row_n]]
-            row_has_data = any(bool(v) for v in row_values)
-            if row_has_data:
-                headings = [heading if heading else default_heading
-                            for (heading, default_heading)
-                            in itertools.zip_longest(row_values, headings)]
-                start_row = row_n + 1
-                break
+        default_headings = [f"Col{c}" for c in range(1, max_col + 1)]
+        start_row, headings = _xlsx_header_start_row(sheet, default_headings)
 
         data = []
         for r in range(start_row, max_row + 1):
@@ -557,18 +655,46 @@ class Source:
 
     def _multiple_sources(self, sources: Iterable) -> None:
         """Combine multiple sources into one iterator."""
-        subsources = [Source(s, limit=self.limit) for s in sources]
+        subsources = [Source(s, limit=self.limit, every_nth=self.every_nth,
+                             sample_k=self.sample_k, seed=self.seed) for s in sources]
         self.limit = None  # limit already applied to subsources
+        self.every_nth = None  # stride already applied to subsources
+        self.sample_k = None  # reservoir sampling already applied to subsources
+        self.seed = None  # seed already applied to subsources
         self.generator = itertools.chain.from_iterable(subsources)
 
     def __iter__(self) -> 'Source':
         return self
 
     def __next__(self) -> Any:
+        if self.sample_k is not None:
+            if self._reservoir is None:
+                reservoir: list[tuple[int, Any]] = []
+                for i, row in enumerate(self.generator):
+                    if i < self.sample_k:
+                        reservoir.append((i, row))
+                    else:
+                        j = self._rng.randint(0, i)
+                        if j < self.sample_k:
+                            reservoir[j] = (i, row)
+                reservoir.sort(key=lambda pair: pair[0])
+                self._reservoir = [row for (_i, row) in reservoir]
+                self._reservoir_pos = 0
+            if self._reservoir_pos >= len(self._reservoir):
+                raise StopIteration
+            row = self._reservoir[self._reservoir_pos]
+            self._reservoir_pos += 1
+            return row
         self.counter += 1
         if self.limit and (self.counter > self.limit):
             raise StopIteration
-        return next(self.generator)
+        if not self.every_nth:
+            return next(self.generator)
+        while True:
+            row = next(self.generator)  # StopIteration propagates naturally
+            self._stride_counter += 1
+            if self._stride_counter % self.every_nth == 0:
+                return row
 
     def close(self) -> None:
         """Close any file opened by this Source."""
@@ -588,8 +714,65 @@ class Source:
         self.close()
         return False
 
+    @staticmethod
+    def count(src: Any, table: str = '*', fieldnames: Any = None) -> list:
+        """
+        Report [(name, row_count), ...] for src, using a cheap count where
+        available (MongoDB, xlsx) and falling back to constructing a real
+        Source and consuming its generator otherwise (CSV/JSON/YAML/HTML/
+        .xls/generators -- these formats have no way to count without a
+        full read/parse). Always reports the true total; ignores
+        limit/every_nth/sample_k/seed entirely (this is a survey helper,
+        not a sampled read).
 
-def sqlalchemy_table_sources(url: str) -> Iterator['Source']:
+        Kept as a separate dispatch from __init__'s _source_is_* tree rather
+        than threading a count-only flag through it: the xlsx optimization
+        specifically requires never constructing a normal Source for xlsx,
+        since _source_is_xlsx_worksheet already, unconditionally, builds the
+        full per-row list as a side effect of construction.
+        """
+        if MongoCollection is not None and isinstance(src, MongoCollection):
+            return [(src.name, src.count_documents({}))]
+
+        if isinstance(src, str) and (src.startswith("http://") or src.startswith("https://")):
+            _core_url, ext = os.path.splitext(src)
+            if ext.lower() in ('.xls', '.xlsx'):
+                content = url_utils.safe_fetch_content(src)
+                return Source.count(content, table=table, fieldnames=fieldnames)
+            # Other URL formats fall through to the generic Source fallback below.
+
+        is_xlsx = False
+        if isinstance(src, bytes):
+            is_xlsx = src[:4] == b'PK\x03\x04'
+        elif isinstance(src, str):
+            is_xlsx = src.lower().endswith('.xlsx')
+        if is_xlsx:
+            return _count_xlsx(src, table=table)
+
+        if isinstance(src, str):
+            try:
+                import glob
+                matches = [match for match in sorted(glob.glob(src)) if match != src]
+            except (TypeError, ValueError, OSError):
+                matches = []
+            if matches:
+                results = []
+                for match in matches:
+                    results.extend(Source.count(match, table=table, fieldnames=fieldnames))
+                return results
+
+        source = Source(src, table=table, fieldnames=fieldnames)
+        try:
+            n = sum(1 for _ in source.generator)
+        finally:
+            source.close()
+        return [(source.table_name, n)]
+
+
+def sqlalchemy_table_sources(url: str, limit: int | None = None,
+                             every_nth: int | None = None,
+                             sample_k: int | None = None,
+                             seed: int | None = None) -> Iterator['Source']:
     """
     Yield Source objects for each table in a SQLAlchemy database.
 
@@ -597,6 +780,10 @@ def sqlalchemy_table_sources(url: str) -> Iterator['Source']:
 
     Args:
         url: SQLAlchemy database URL
+        limit: Maximum number of rows to read per table
+        every_nth: Sample every Nth row per table instead of reading all rows
+        sample_k: Reservoir-sample exactly this many rows per table
+        seed: Random seed for sample_k reproducibility
 
     Yields:
         Source objects, one per table
@@ -609,4 +796,33 @@ def sqlalchemy_table_sources(url: str) -> Iterator['Source']:
     meta.reflect(bind=engine)
 
     for table in meta.sorted_tables:
-        yield Source(meta, table=table.name)
+        yield Source(meta, table=table.name, engine=engine, limit=limit,
+                     every_nth=every_nth, sample_k=sample_k, seed=seed)
+
+
+def count_sqlalchemy_tables(url: str, table: str = '*') -> list:
+    """
+    Report [(table_name, row_count), ...] for a SQLAlchemy database URL
+    using SELECT COUNT(*), without transferring any rows.
+
+    Kept independent of Source.count()'s dispatch (console.py routes
+    SQLAlchemy URLs here directly). Deliberately keeps its own engine/
+    connection throughout and never touches meta.bind, unlike
+    Source._source_is_sqlalchemy_metadata.
+    """
+    if sqlalchemy is None:
+        raise ImportError('sqlalchemy not installed')
+
+    engine = sqlalchemy.create_engine(url)
+    meta = sqlalchemy.MetaData()
+    meta.reflect(bind=engine)
+    targets = meta.sorted_tables if table == '*' else [meta.tables[table]]
+
+    results = []
+    with engine.connect() as connection:
+        for tbl in targets:
+            n = connection.execute(
+                sqlalchemy.select(sqlalchemy.func.count()).select_from(tbl)
+            ).scalar()
+            results.append((tbl.name, n))
+    return results
