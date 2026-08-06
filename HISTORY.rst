@@ -3,6 +3,21 @@
 History
 -------
 
+Unreleased
+++++++++++
+
+**Breaking**
+
+* Minimum supported Python raised from 3.10 to 3.12; CI now tests
+  3.12 and 3.13 only.
+
+Development
+~~~~~~~~~~~
+
+* ``pyproject.toml`` classifiers are now the single source of truth for
+  supported Python versions.  ``tests/test_version_sync.py`` fails the
+  build if ``tox.ini`` or the CI workflow drifts out of sync.
+
 0.2.2 (2026-08-03)
 ++++++++++++++++++
 

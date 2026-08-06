@@ -6,7 +6,7 @@ DDL Generator
    :target: https://github.com/pjbaur/ddl-generator-modern/actions/workflows/ci.yml
    :alt: CI Status
 
-.. image:: https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue.svg
+.. image:: https://img.shields.io/badge/python-3.12%20%7C%203.13-blue.svg
    :target: https://pypi.org/project/ddl-generator/
    :alt: Python Versions
 
@@ -53,7 +53,7 @@ To use in Python::
 Requirements
 ------------
 
-- **Python:** 3.10, 3.11, 3.12, 3.13
+- **Python:** 3.12, 3.13
 - **SQLAlchemy:** 2.0+
 
 Supported data formats
@@ -178,7 +178,7 @@ column types each time.
 Installing
 ----------
 
-Requires Python 3.10 or higher.
+Requires Python 3.12 or higher.
 
 From PyPI::
 

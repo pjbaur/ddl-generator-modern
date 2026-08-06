@@ -5,7 +5,7 @@ Installation
 Requirements
 ============
 
-- Python 3.10 or higher
+- Python 3.12 or higher
 - SQLAlchemy 2.0 or higher
 
 From PyPI
