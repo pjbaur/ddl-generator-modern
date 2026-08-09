@@ -164,6 +164,21 @@ class TestSQLAlchemyModel:
         output = tbl.sqlalchemy()
         assert "Column(" in output
 
+    def test_sqlalchemy_unique_constraint_order_matches_columns(self):
+        """UniqueConstraint lines must follow column declaration order.
+
+        table.constraints is a plain Python set; iterating it directly
+        orders entries by object id (memory address), not by any
+        deterministic key, so output order varies run to run.
+        """
+        data = [{"id": 1, "a": "x1", "b": "y1", "c": "z1", "d": "w1"},
+                {"id": 2, "a": "x2", "b": "y2", "c": "z2", "d": "w2"}]
+        tbl = Table(data, table_name="test_sqla_multi_u", uniques=True)
+        output = tbl.sqlalchemy()
+        positions = [output.index(f"UniqueConstraint('{col}')")
+                     for col in ("id", "a", "b", "c", "d")]
+        assert positions == sorted(positions)
+
     def test_sqlalchemy_sa2x_metadata_no_bind(self):
         """SQLAlchemy 2.x style: MetaData() without bind= parameter"""
         data = [{"id": 1, "name": "test"}]

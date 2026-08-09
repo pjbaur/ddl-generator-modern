@@ -524,12 +524,19 @@ class Table:
         table_def = self.table_backref_remover.sub('', self.table.__repr__())
 
         # inject UNIQUE constraints into table definition
-        constraint_defs = []
-        for constraint in self.table.constraints:
-            if isinstance(constraint, sa.sql.schema.UniqueConstraint):
-                col_list = ', '.join(f"'{c.name}'"
-                                     for c in constraint.columns)
-                constraint_defs.append(f'UniqueConstraint({col_list})')
+        # self.table.constraints is a plain set, so iterating it directly
+        # orders entries by object id rather than any deterministic key;
+        # sort by creation order (same key SQLAlchemy's own DDL compiler
+        # uses for constraints) to keep output stable across runs.
+        unique_constraints = sorted(
+            (c for c in self.table.constraints
+             if isinstance(c, sa.sql.schema.UniqueConstraint)),
+            key=lambda c: c._creation_order)
+        constraint_defs = [
+            'UniqueConstraint({})'.format(
+                ', '.join(f"'{c.name}'" for c in constraint.columns))
+            for constraint in unique_constraints
+        ]
         if constraint_defs:
             constraint_block = ',\n  '.join(constraint_defs) + ','
             table_def = table_def.replace('schema=None', '\n  ' + constraint_block + 'schema=None')
