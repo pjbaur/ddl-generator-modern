@@ -117,9 +117,10 @@ isn't mistaken for an oversight later.
   - `self.counter` (used by `limit`) is not incremented on this path —
     `sample_k` and `limit` are mutually exclusive, so `self.counter`'s only
     consumer never runs concurrently with this branch.
-- `_multiple_sources` (used for glob matches, multi-sheet xlsx, and
-  multi-table HTML — the same method backs all three call sites) already
-  forwards `limit`/`every_nth` to each subsource and clears them on the
+- `_multiple_sources` (used for glob matches and multi-sheet xlsx — the same
+  method backs both call sites; HTML always extracts a single table, the
+  highest-scored one from `_table_score`, so it never goes through this path)
+  already forwards `limit`/`every_nth` to each subsource and clears them on the
   parent (`self.limit = None`, `self.every_nth = None`) so the parent's own
   `__next__` doesn't double-apply them once the subsources are chained.
   `sample_k`/`seed` must follow the same pattern: `Source(s, limit=self.limit,
