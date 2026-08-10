@@ -257,3 +257,12 @@ class TestSqlaInserterCall:
         result = sqla_inserter_call(["users"])
         assert '"""' in result
         assert "test data" in result.lower() or "populate" in result.lower()
+
+    def test_commits_after_inserting(self):
+        """SQLAlchemy 2.0 dropped autocommit, so the rows need an explicit commit."""
+        from ddlgenerator.ddlgenerator import sqla_inserter_call
+
+        result = sqla_inserter_call(["users"])
+        lines = [line for line in result.splitlines() if line.strip()]
+        assert lines[-1].strip() == "conn.commit()"
+        assert lines[-2].strip() == "insert_users(meta.tables['users'], conn)"

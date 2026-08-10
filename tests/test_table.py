@@ -11,9 +11,12 @@ Covers: varying_length_text, reorder, force_pk, limit,
 import io
 import json
 import os
+import runpy
 from collections import Counter, OrderedDict
+from decimal import Decimal
 
 import pytest
+import sqlalchemy as sa
 import yaml
 
 from ddlgenerator.ddlgenerator import (
@@ -24,6 +27,7 @@ from ddlgenerator.ddlgenerator import (
     _metadata_from_safe,
     _metadata_to_safe,
     _validate_data_source,
+    sqla_head,
 )
 
 
@@ -196,6 +200,50 @@ class TestSQLAlchemyModel:
         # Should use metadata.create_all(engine) not table.create()
         assert "metadata.create_all(engine)" in output
         assert ".create()" not in output
+
+
+# ---------------------------------------------------------------------------
+# SQLAlchemy INSERT output
+# ---------------------------------------------------------------------------
+class TestSQLAlchemyInserts:
+    def test_inserts_pass_parameters_as_a_mapping(self):
+        """SQLAlchemy 2.x style: conn.execute(stmt, {...}) not **{...}
+
+        Connection.execute() dropped **kwargs bind parameters in 2.0, so the
+        emitted call raised TypeError: got an unexpected keyword argument.
+        """
+        data = [{"id": 1, "name": "test"}]
+        tbl = Table(data, table_name="test_sqla_params")
+        output = "\n".join(tbl.inserts(dialect="sqlalchemy"))
+        assert "conn.execute(inserter, {" in output
+        assert "conn.execute(inserter, **" not in output
+
+    def test_inserts_from_a_file_source_have_no_engine(self):
+        """A Table built from anything but a live database has no db_engine.
+
+        The sequence-update lookup read self.source.db_engine unguarded, so
+        `ddlgenerator -i sqlalchemy anything.yaml` died with
+        AttributeError: 'str' object has no attribute 'db_engine'.
+        """
+        tbl = Table(here("knights.yaml"))
+        output = "\n".join(tbl.inserts(dialect="sqlalchemy"))
+        assert "Lancelot" in output
+        assert "ALTER SEQUENCE" not in output
+
+    def test_generated_inserts_execute(self, tmp_path):
+        """The whole point: the emitted code has to run under SQLAlchemy 2.x."""
+        data = [{"id": 1, "name": "test", "value": 42.5}]
+        tbl = Table(data, table_name="test_sqla_run")
+        module = tmp_path / "generated.py"
+        module.write_text("{}\n{}\n{}\n".format(
+            sqla_head, tbl.sqlalchemy(),
+            "\n".join(tbl.inserts(dialect="sqlalchemy"))))
+        namespace = runpy.run_path(str(module))
+        namespace["insert_test_sqla_run"](namespace["test_sqla_run"],
+                                          namespace["conn"])
+        namespace["conn"].commit()
+        rows = namespace["conn"].execute(sa.select(namespace["test_sqla_run"]))
+        assert [tuple(r) for r in rows] == [(1, "test", Decimal("42.5"))]
 
 
 # ---------------------------------------------------------------------------
