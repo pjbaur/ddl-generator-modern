@@ -600,21 +600,39 @@ class Table:
                 if os.path.exists(db_filename):
                     os.remove(db_filename)
 
+    def _needs_conversion(self) -> bool:
+        """True when the rows are raw source data rather than typed DB rows."""
+        return (not hasattr(self.data, 'generator')
+                or not hasattr(self.data.generator, 'sqla_columns'))
+
+    def _coerce_datum(self, datum: Any, col: str, needs_conversion: bool) -> Any:
+        """Convert a raw source value to the Python type inferred for its column.
+
+        Returns ``None`` for values that belong in the database as NULL. The
+        result is a Python object, not SQL text, so it suits both the literal
+        rendering in ``_prep_datum`` and the bind parameters emitted for
+        SQLAlchemy.
+        """
+        if datum is None or (needs_conversion and not str(datum).strip()):
+            return None
+        if not needs_conversion:
+            return datum
+        pytype = self.columns[col]['pytype']
+        if pytype is datetime.datetime:
+            return dateutil.parser.parse(datum)
+        if pytype is bool:
+            return th.coerce_to_specific(datum)
+        return pytype(str(datum))
+
     def _prep_datum(self, datum: Any, dialect: str, col: str, needs_conversion: bool) -> str:
         """Puts a value in proper format for a SQL string using safe escaping."""
-        if datum is None or (needs_conversion and not str(datum).strip()):
+        datum = self._coerce_datum(datum, col, needs_conversion)
+        if datum is None:
             return 'NULL'
-        pytype = self.columns[col]['pytype']
 
-        if needs_conversion:
-            if pytype is datetime.datetime:
-                datum = dateutil.parser.parse(datum)
-            elif pytype is bool:
-                datum = th.coerce_to_specific(datum)
-                if dialect.startswith('sqlite'):
-                    datum = 1 if datum else 0
-            else:
-                datum = pytype(str(datum))
+        if (needs_conversion and self.columns[col]['pytype'] is bool
+                and dialect.startswith('sqlite')):
+            datum = 1 if datum else 0
 
         if isinstance(datum, datetime.datetime) or isinstance(datum, datetime.date):
             # Standard ISO format works across most databases
@@ -630,12 +648,19 @@ class Table:
     def inserts(self, dialect: str | None = None) -> Iterator[str]:
         if dialect and dialect.startswith("sqla"):
             if self.data:
+                needs_conversion = self._needs_conversion()
                 yield f"\ndef insert_{self.table_name}(tbl, conn):"
                 yield "    inserter = tbl.insert()"
                 for row in self.data:
+                    # SQLAlchemy binds Python objects, so the raw source values
+                    # have to be coerced to the column's type -- a source string
+                    # reaching a DateTime or Boolean column is rejected. The
+                    # reprs are valid Python given sqla_head's imports.
+                    params = {key: self._coerce_datum(val, key, needs_conversion)
+                              for (key, val) in row.items()}
                     # SQLAlchemy 2.x takes bind parameters as a mapping
                     # argument, not as keyword arguments
-                    yield textwrap.indent(f"conn.execute(inserter, {str(dict(row))})",
+                    yield textwrap.indent(f"conn.execute(inserter, {params!r})",
                                           "    ")
                 # only a Source reading from a live database has an engine
                 for seq_updater in emit_db_sequence_updates(
@@ -645,7 +670,7 @@ class Table:
                 yield f"\n# No data for {self.table.name}"
         else:
             dialect = self._dialect(dialect)
-            needs_conversion = not hasattr(self.data, 'generator') or not hasattr(self.data.generator, 'sqla_columns')
+            needs_conversion = self._needs_conversion()
             for row in self.data:
                 cols = ", ".join(c for c in row.keys())
                 vals = ", ".join(str(self._prep_datum(val, dialect, key, needs_conversion))
@@ -750,6 +775,7 @@ class Table:
 
 sqla_head = """
 import datetime
+from decimal import Decimal
 # check for other imports you may need, like your db driver
 from sqlalchemy import create_engine, MetaData, ForeignKey
 engine = create_engine(r'sqlite:///:memory:')
@@ -766,7 +792,7 @@ def sqla_inserter_call(table_names: Iterable[str]) -> str:
     """
     return '''
 
-def insert_test_rows(meta: Any, conn: Any) -> None:
+def insert_test_rows(meta, conn):
     """Calls insert_* functions to create test data.
 
     Given a SQLAlchemy metadata object ``meta`` and
