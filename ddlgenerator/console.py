@@ -37,8 +37,11 @@ parser.add_argument('--every-nth', type=int, default=None,
                     help='Sample every Nth row instead of reading all rows')
 parser.add_argument('--sample-k', type=int, default=None,
                     help='Randomly sample exactly K rows per source (reservoir sampling)')
+parser.add_argument('--sample-pct', type=float, default=None,
+                    help='Randomly sample approximately this percent (0-100) of rows '
+                         'per source (Bernoulli sampling)')
 parser.add_argument('--seed', type=int, default=None,
-                    help='Random seed for --sample-k reproducibility')
+                    help='Random seed for --sample-k/--sample-pct reproducibility')
 parser.add_argument('-c', '--cushion', type=int, default=0, help='Extra length to pad column sizes with')
 parser.add_argument('--save-metadata-to', type=str, metavar='FILENAME',
                     help='Save table definition in FILENAME for later --use-saved-metadata run')
@@ -70,7 +73,7 @@ def generate_one(tbl: Any, args: argparse.Namespace,
                   pk_name=args.key, force_pk=args.force_key, reorder=args.reorder, data_size_cushion=args.cushion,
                   save_metadata_to=args.save_metadata_to, metadata_source=args.use_metadata_from,
                   loglevel=args.log, limit=args.limit, every_nth=args.every_nth,
-                  sample_k=args.sample_k, seed=args.seed)
+                  sample_k=args.sample_k, seed=args.seed, sample_pct=args.sample_pct)
     if args.dialect.startswith('sqla'):
         if not args.no_creates:
             print(table.sqlalchemy(), file=file)
@@ -90,8 +93,8 @@ def run_count_only(args: argparse.Namespace, file: IO[str] | None = None) -> Non
     Report row counts per source and exit without generating DDL/INSERTs.
 
     Always reports the true total record count, ignoring --limit/--every-nth/
-    --sample-k/--seed (this mode exists to help pick a sampling value for a
-    subsequent run). xlsx, SQLAlchemy, and MongoDB sources use a cheap count;
+    --sample-k/--sample-pct/--seed (this mode exists to help pick a sampling
+    value for a subsequent run). xlsx, SQLAlchemy, and MongoDB sources use a cheap count;
     CSV/JSON/YAML/HTML/xls and generator sources must be fully read to count
     them.
     """
@@ -138,8 +141,15 @@ def generate(args: str | list[str] | None = None,
         raise ValueError(f"--sample-k must be a positive integer, got {parsed.sample_k}")
     if parsed.sample_k is not None and (parsed.limit is not None or parsed.every_nth is not None):
         raise ValueError("--sample-k cannot be combined with --limit or --every-nth")
-    if parsed.seed is not None and parsed.sample_k is None:
-        raise ValueError("--seed requires --sample-k")
+    if parsed.sample_pct is not None and not 0 < parsed.sample_pct <= 100:
+        raise ValueError(
+            f"--sample-pct must be greater than 0 and at most 100, got {parsed.sample_pct}")
+    if parsed.sample_pct is not None and (parsed.limit is not None
+                                          or parsed.every_nth is not None
+                                          or parsed.sample_k is not None):
+        raise ValueError("--sample-pct cannot be combined with --limit, --every-nth, or --sample-k")
+    if parsed.seed is not None and parsed.sample_k is None and parsed.sample_pct is None:
+        raise ValueError("--seed requires --sample-k or --sample-pct")
     if parsed.count_only:
         run_count_only(parsed, file=file)
         return
@@ -161,7 +171,8 @@ def generate(args: str | list[str] | None = None,
             for tbl in sqlalchemy_table_sources(datafile, limit=parsed.limit,
                                                 every_nth=parsed.every_nth,
                                                 sample_k=parsed.sample_k,
-                                                seed=parsed.seed):
+                                                seed=parsed.seed,
+                                                sample_pct=parsed.sample_pct):
                 t = generate_one(tbl, parsed, table_name=tbl.generator.name, file=file)
                 if t.data:
                     table_names_for_insert.append(tbl.generator.name)

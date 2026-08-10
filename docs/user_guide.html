@@ -583,7 +583,7 @@ CREATE TABLE menu (
         <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">usage</span><button class="copy" data-copy>copy</button></div>
 <pre><code>ddlgenerator [-h] [-k KEY] [--force-key] [-r] [-u] [-t] [-d] [-i]
              [--no-creates] [--count-only] [--limit LIMIT] [--every-nth EVERY_NTH]
-             [--sample-k SAMPLE_K] [--seed SEED] [-c CUSHION]
+             [--sample-k SAMPLE_K] [--sample-pct SAMPLE_PCT] [--seed SEED] [-c CUSHION]
              [--save-metadata-to FILENAME] [--use-metadata-from FILENAME] [-l LOG]
              dialect datafile [datafile ...]</code></pre>
       </div>
@@ -602,11 +602,12 @@ CREATE TABLE menu (
           <tr><td><code>--force-key</code></td><td>Give <em>every</em> table a primary key, even if none was otherwise required.</td></tr>
           <tr><td><code>-r, --reorder</code></td><td>Reorder columns alphabetically, with the key column first.</td></tr>
           <tr><td><code>-c, --cushion N</code></td><td>Pad variable-length column sizes with extra headroom.</td></tr>
-          <tr><td><code>--count-only</code></td><td>Report the true row count per source and exit — no DDL/INSERT generation. Ignores <code>--limit</code>/<code>--every-nth</code>/<code>--sample-k</code>/<code>--seed</code>. See <a href="#sampling">Sampling flags</a>.</td></tr>
+          <tr><td><code>--count-only</code></td><td>Report the true row count per source and exit — no DDL/INSERT generation. Ignores <code>--limit</code>/<code>--every-nth</code>/<code>--sample-k</code>/<code>--sample-pct</code>/<code>--seed</code>. See <a href="#sampling">Sampling flags</a>.</td></tr>
           <tr><td><code>--limit N</code></td><td>Read at most <code>N</code> rows from each source (affects inference).</td></tr>
           <tr><td><code>--every-nth N</code></td><td>Keep rows <code>N, 2N, 3N, …</code> instead of every row. Combines with <code>--limit</code> (strides first, then caps). See <a href="#sampling">Sampling flags</a>.</td></tr>
-          <tr><td><code>--sample-k K</code></td><td>Reservoir-sample exactly <code>K</code> rows per source (Algorithm R) — an unbiased random sample without a full read. Mutually exclusive with <code>--limit</code>/<code>--every-nth</code>. See <a href="#sampling">Sampling flags</a>.</td></tr>
-          <tr><td><code>--seed N</code></td><td>Random seed for <code>--sample-k</code> reproducibility. Optional; requires <code>--sample-k</code>. See <a href="#sampling">Sampling flags</a>.</td></tr>
+          <tr><td><code>--sample-k K</code></td><td>Reservoir-sample exactly <code>K</code> rows per source (Algorithm R) — an unbiased random sample without a full read. Mutually exclusive with <code>--limit</code>/<code>--every-nth</code>/<code>--sample-pct</code>. See <a href="#sampling">Sampling flags</a>.</td></tr>
+          <tr><td><code>--sample-pct P</code></td><td>Keep each row with probability <code>P/100</code> (Bernoulli) — sample size scales with the source, but the row count is <em>approximate</em>. Never yields zero rows from a non-empty source. Mutually exclusive with <code>--limit</code>/<code>--every-nth</code>/<code>--sample-k</code>. See <a href="#sampling">Sampling flags</a>.</td></tr>
+          <tr><td><code>--seed N</code></td><td>Random seed for <code>--sample-k</code>/<code>--sample-pct</code> reproducibility. Optional; requires one of them. See <a href="#sampling">Sampling flags</a>.</td></tr>
           <tr><td><code>--save-metadata-to F</code></td><td>Save the inferred structure to <code>F</code> so later runs can skip re-analysis. (Auto-appends <code>.yaml</code>.)</td></tr>
           <tr><td><code>--use-metadata-from F</code></td><td>Reuse a previously saved structure instead of re-inferring.</td></tr>
           <tr><td><code>-l, --log LEVEL</code></td><td>Log verbosity: <code>DEBUG INFO WARN ERROR CRITICAL</code>. Default <code>WARN</code>.</td></tr>
@@ -955,7 +956,7 @@ INSERT INTO animals (name, species, kg, notes) VALUES ('Emily', 'salamander', 0.
         restored with their foreign keys intact.</p>
       </div>
 
-      <h3 id="sampling">Sampling flags — <code>--count-only</code>, <code>--every-nth</code>, <code>--sample-k</code></h3>
+      <h3 id="sampling">Sampling flags — <code>--count-only</code>, <code>--every-nth</code>, <code>--sample-k</code>, <code>--sample-pct</code></h3>
       <p>Before picking a sample size, find out how big a source actually is. <code class="inline">--count-only</code>
       reports the true row count per source and exits — no DDL or INSERTs are generated, and it always counts
       every row regardless of any other sampling flag:</p>
@@ -1009,11 +1010,54 @@ INSERT INTO orders (id, customer, total) VALUES (4, 'Beatrice', 18.50);
 INSERT INTO orders (id, customer, total) VALUES (5, 'Clive', 44.10);</code></pre>
       </div>
 
+      <p>When the sample should scale with the source rather than stay pinned at a fixed count,
+      <code class="inline">--sample-pct P</code> keeps each row independently with probability
+      <code class="inline">P/100</code>. The row count that comes out is <em>approximate</em> — 50% of these
+      six rows yields two, not three:</p>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">shell</span><button class="copy" data-copy>copy</button></div>
+<pre><code>$ ddlgenerator -i --sample-pct 50 --seed 2 postgresql orders.csv</code></pre>
+      </div>
+      <div class="code">
+        <div class="code__bar"><div class="dots"><i></i><i></i><i></i></div><span class="code__lang">sql · postgresql</span></div>
+<pre><code>CREATE TABLE orders (
+	id INTEGER NOT NULL,
+	customer VARCHAR(8) NOT NULL,
+	total DECIMAL(4, 2) NOT NULL
+);
+
+INSERT INTO orders (id, customer, total) VALUES (3, 'Mildred', 7.25);
+INSERT INTO orders (id, customer, total) VALUES (4, 'Beatrice', 18.50);</code></pre>
+      </div>
+
+      <p>The two random samplers trade off differently. <code class="inline">--sample-k</code> gives an exact
+      count but must read the entire source before it can emit its first row — any later row can still
+      displace one it provisionally kept. <code class="inline">--sample-pct</code> decides row by row and
+      streams, at the cost of an approximate count. Reach for <code class="inline">--sample-k</code> when the
+      number of rows matters and <code class="inline">--sample-pct</code> when the <em>proportion</em> does.</p>
+
+      <div class="callout note">
+        <strong><code class="inline">--sample-pct</code> never yields an empty sample</strong>
+        <p>A low percentage over a small source can select nothing at all. Rather than leave you with no rows
+        to infer from, one row picked uniformly at random from the whole source is emitted instead — so a
+        non-empty source always produces at least one. An empty source still yields nothing. With a glob or a
+        multi-sheet spreadsheet this floor applies per file, so five matched files yield at least five rows.</p>
+        <p>Be aware of what a one-row sample does to inference, though: types come from whatever rows survive,
+        so a lone <code class="inline">id</code> value of <code class="inline">1</code> infers as
+        <code class="inline">BOOLEAN</code>, and <code class="inline">VARCHAR(n)</code> sizes reflect only the
+        sampled strings. That is not specific to <code class="inline">--sample-pct</code> —
+        <code class="inline">--limit 1</code> does the same — but this floor makes it easy to reach. Pad with
+        <code class="inline">-c/--cushion</code>, or sample more rows.</p>
+      </div>
+
       <div class="callout warn">
-        <strong><code class="inline">--sample-k</code> is exclusive with <code class="inline">--limit</code>/<code class="inline">--every-nth</code></strong>
-        <p>Combining any two of <code class="inline">--limit</code>, <code class="inline">--every-nth</code>, and
-        <code class="inline">--sample-k</code> raises an error — pick one strategy per run.
-        <code class="inline">--seed</code> requires <code class="inline">--sample-k</code>. When a datafile
+        <strong>The sampling flags are mutually exclusive</strong>
+        <p>Combining any two of <code class="inline">--limit</code>, <code class="inline">--every-nth</code>,
+        <code class="inline">--sample-k</code>, and <code class="inline">--sample-pct</code> raises an error —
+        pick one strategy per run. (<code class="inline">--limit</code> and <code class="inline">--every-nth</code>
+        are the one permitted pair: they stride first, then cap.)
+        <code class="inline">--seed</code> requires <code class="inline">--sample-k</code> or
+        <code class="inline">--sample-pct</code>. When a datafile
         argument expands to multiple files (a glob) or multiple spreadsheet sheets, each one gets the seed
         offset by its position, so the sampled rows are independent per file/sheet rather than landing on
         the same relative positions in each.</p>

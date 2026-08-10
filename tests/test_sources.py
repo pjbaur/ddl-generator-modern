@@ -10,6 +10,8 @@ Covers: _ensure_rows, _ordered_yaml_load, _json_loader, _interpret_fieldnames,
 import contextlib
 import os
 import pathlib
+import random
+from collections import Counter
 from io import StringIO
 from unittest.mock import MagicMock, Mock, patch
 
@@ -687,6 +689,196 @@ class TestSourceSampleK:
         relative_a = sorted(r["id"] - 1 for r in result if r["id"] < 100)
         relative_b = sorted(r["id"] - 101 for r in result if r["id"] >= 100)
         assert relative_a != relative_b
+
+
+# ---------------------------------------------------------------------------
+# Source class - sample_pct (Bernoulli sampling)
+# ---------------------------------------------------------------------------
+class TestSourceSamplePctValidation:
+    def test_sample_pct_zero_raises(self):
+        with pytest.raises(ValueError,
+                           match="sample_pct must be greater than 0 and at most 100"):
+            Source(iter([{"id": 1}]), sample_pct=0)
+
+    def test_sample_pct_negative_raises(self):
+        with pytest.raises(ValueError,
+                           match="sample_pct must be greater than 0 and at most 100"):
+            Source(iter([{"id": 1}]), sample_pct=-5)
+
+    def test_sample_pct_over_100_raises(self):
+        with pytest.raises(ValueError,
+                           match="sample_pct must be greater than 0 and at most 100"):
+            Source(iter([{"id": 1}]), sample_pct=101)
+
+    def test_sample_pct_combined_with_limit_raises(self):
+        with pytest.raises(
+                ValueError,
+                match="sample_pct cannot be combined with limit, every_nth, or sample_k"):
+            Source(iter([{"id": 1}]), sample_pct=10, limit=1)
+
+    def test_sample_pct_combined_with_every_nth_raises(self):
+        with pytest.raises(
+                ValueError,
+                match="sample_pct cannot be combined with limit, every_nth, or sample_k"):
+            Source(iter([{"id": 1}]), sample_pct=10, every_nth=2)
+
+    def test_sample_pct_combined_with_sample_k_raises(self):
+        with pytest.raises(
+                ValueError,
+                match="sample_pct cannot be combined with limit, every_nth, or sample_k"):
+            Source(iter([{"id": 1}]), sample_pct=10, sample_k=1)
+
+    def test_seed_with_sample_pct_alone_is_allowed(self):
+        src = Source(iter([{"id": 1}]), sample_pct=100, seed=42)
+        assert [r["id"] for r in src] == [1]
+
+
+class TestSourceSamplePct:
+    def test_sample_pct_100_keeps_every_row(self):
+        data = [{"id": i} for i in range(1, 101)]
+        src = Source(iter(data), sample_pct=100, seed=1)
+        assert [r["id"] for r in src] == list(range(1, 101))
+
+    def test_sample_pct_is_deterministic_with_same_seed(self):
+        data = [{"id": i} for i in range(1, 1001)]
+        result_a = list(Source(iter(data), sample_pct=10, seed=42))
+        result_b = list(Source(iter(data), sample_pct=10, seed=42))
+        assert [r["id"] for r in result_a] == [r["id"] for r in result_b]
+
+    def test_sample_pct_yields_approximately_the_requested_share(self):
+        """Bernoulli sampling gives an approximate count, not an exact one.
+        Seeded, so the count below is deterministic rather than flaky."""
+        data = [{"id": i} for i in range(1, 1001)]
+        result = list(Source(iter(data), sample_pct=10, seed=42))
+        assert len(result) == 90
+        assert 60 < len(result) < 140  # comfortably around 10% of 1000
+
+    def test_sample_pct_preserves_original_relative_order(self):
+        data = [{"id": i} for i in range(1, 501)]
+        result = [r["id"] for r in Source(iter(data), sample_pct=10, seed=7)]
+        assert result == sorted(result)
+
+    def test_sample_pct_on_empty_source_yields_nothing(self):
+        """The >=1 floor never manufactures a row out of an empty source."""
+        src = Source(iter([]), sample_pct=10, seed=1)
+        assert list(src) == []
+
+    def test_sample_pct_without_seed_still_yields_rows(self):
+        data = [{"id": i} for i in range(1, 1001)]
+        assert len(list(Source(iter(data), sample_pct=10))) > 0
+
+    def test_sample_pct_yields_at_least_one_row_when_nothing_survives(self):
+        """seed 0 selects no row from 10 rows at 1%, so the floor fires."""
+        data = [{"id": i} for i in range(1, 11)]
+        result = list(Source(iter(data), sample_pct=1, seed=0))
+        assert len(result) == 1
+
+    def test_sample_pct_floor_row_is_not_always_the_first_row(self):
+        """The floor row comes from a size-1 reservoir over the whole source,
+        not from simply remembering row 1, so it is unbiased."""
+        floor_rows = []
+        for seed in range(6):  # every one of these selects nothing at 1%
+            data = [{"id": i} for i in range(1, 11)]
+            result = list(Source(iter(data), sample_pct=1, seed=seed))
+            assert len(result) == 1
+            floor_rows.append(result[0]["id"])
+        assert len(set(floor_rows)) > 1
+        assert floor_rows != [1] * len(floor_rows)
+
+    def test_sample_pct_floor_row_is_spread_over_the_whole_source(self):
+        """Stronger than "not always row 1": over many seeds the floor row
+        should reach every position, which a head-biased or tail-biased
+        pick would not. Deterministic -- every seed here is fixed."""
+        floor_rows = []
+        for seed in range(200):
+            data = [{"id": i} for i in range(1, 11)]
+            result = list(Source(iter(data), sample_pct=0.01, seed=seed))
+            assert len(result) == 1  # 0.01% never selects anything here
+            floor_rows.append(result[0]["id"])
+        assert set(floor_rows) == set(range(1, 11))
+        # no position should dominate the way a "remember row 1" bug would
+        assert max(Counter(floor_rows).values()) < len(floor_rows) / 2
+
+    def test_sample_pct_decisions_are_independent_of_floor_bookkeeping(self):
+        """The floor keeps its own RNG stream so Bernoulli keep/drop stays a
+        clean function of (seed, row index). Pinning it against a plain
+        random.Random means merging the two streams breaks this test rather
+        than silently shifting which rows every sample returns."""
+        n, pct, seed = 500, 20, 11
+        rng = random.Random(seed)
+        expected = [i for i in range(1, n + 1) if rng.random() < pct / 100]
+        data = [{"id": i} for i in range(1, n + 1)]
+        actual = [r["id"] for r in Source(iter(data), sample_pct=pct, seed=seed)]
+        assert actual == expected
+
+    def test_sample_pct_accepts_a_fractional_percent(self):
+        """0 < pct < 1 is legal and samples far more sparsely than 1%."""
+        data = [{"id": i} for i in range(1, 10001)]
+        result = list(Source(iter(data), sample_pct=0.5, seed=3))
+        assert 20 < len(result) < 90  # ~0.5% of 10000 == ~50
+
+    def test_sample_pct_applies_per_matched_file_in_glob(self, tmp_path):
+        (tmp_path / "a.json").write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(1, 21)) + ']'
+        )
+        (tmp_path / "b.json").write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(101, 121)) + ']'
+        )
+        src = Source(str(tmp_path / "*.json"), sample_pct=25, seed=5)
+        result = list(src)
+        from_a = [r["id"] for r in result if r["id"] < 100]
+        from_b = [r["id"] for r in result if r["id"] >= 100]
+        assert len(from_a) > 0
+        assert len(from_b) > 0
+
+    def test_sample_pct_floor_applies_per_subsource(self, tmp_path):
+        """A percent low enough to select nothing still yields one row from
+        each matched file, not one row across the whole glob."""
+        for name, start in (("a.json", 1), ("b.json", 101), ("c.json", 201)):
+            (tmp_path / name).write_text(
+                '[' + ','.join(f'{{"id": {i}}}' for i in range(start, start + 10)) + ']'
+            )
+        result = list(Source(str(tmp_path / "*.json"), sample_pct=1, seed=0))
+        assert len(result) == 3
+
+    def test_sample_pct_seed_offset_gives_independent_positions_per_subsource(self, tmp_path):
+        """Bernoulli decisions are index-driven, not content-driven, so the
+        same seed forwarded unmodified to every subsource would pick identical
+        relative positions from each same-length file."""
+        (tmp_path / "a.json").write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(1, 21)) + ']'
+        )
+        (tmp_path / "b.json").write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(101, 121)) + ']'
+        )
+        result = list(Source(str(tmp_path / "*.json"), sample_pct=25, seed=5))
+        relative_a = sorted(r["id"] - 1 for r in result if r["id"] < 100)
+        relative_b = sorted(r["id"] - 101 for r in result if r["id"] >= 100)
+        assert relative_a != relative_b
+
+    @pytest.mark.skipif(openpyxl is None, reason="openpyxl not installed")
+    def test_sample_pct_applies_per_sheet_in_a_workbook(self, tmp_path):
+        """Multi-sheet spreadsheets expand through _multiple_sources the same
+        way globs do, so the floor and the seed offset are per sheet."""
+        workbook = openpyxl.Workbook()
+        for sheet_idx, title in enumerate(("one", "two", "three")):
+            sheet = workbook.create_sheet(title) if sheet_idx else workbook.active
+            sheet.title = title
+            sheet.append(["id", "name"])
+            for i in range(1, 11):
+                sheet.append([i + sheet_idx * 100, f"{title}{i}"])
+        path = tmp_path / "sheets.xlsx"
+        workbook.save(path)
+
+        floored = list(Source(str(path), sample_pct=1, seed=0))
+        assert len(floored) == 3  # one row per sheet, not one per workbook
+        assert sorted(r["id"] // 100 for r in floored) == [0, 1, 2]
+
+        sampled = list(Source(str(path), sample_pct=50, seed=3))
+        per_sheet = {s: sorted(r["id"] % 100 for r in sampled if r["id"] // 100 == s)
+                     for s in (0, 1, 2)}
+        assert all(rows for rows in per_sheet.values())
+        assert len({tuple(rows) for rows in per_sheet.values()}) > 1
 
 
 # ---------------------------------------------------------------------------

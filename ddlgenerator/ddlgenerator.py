@@ -342,6 +342,7 @@ class Table:
         every_nth: int | None = None,
         sample_k: int | None = None,
         seed: int | None = None,
+        sample_pct: float | None = None,
     ) -> None:
         """
         Initialize a Table and load its data.
@@ -377,7 +378,8 @@ class Table:
             if isinstance(data, str) and url_utils.is_url(data):
                 url_utils.validate_url(data)
             self.data = Source(data, limit=limit, every_nth=every_nth,
-                               sample_k=sample_k, seed=seed)
+                               sample_k=sample_k, seed=seed,
+                               sample_pct=sample_pct)
         else:
             try:
                 self.data = iter(data)

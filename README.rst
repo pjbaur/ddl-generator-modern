@@ -103,7 +103,11 @@ Options
                             Sample every Nth row instead of reading all rows
       --sample-k SAMPLE_K   Randomly sample exactly K rows per source
                             (reservoir sampling)
-      --seed SEED           Random seed for --sample-k reproducibility
+      --sample-pct SAMPLE_PCT
+                            Randomly sample approximately this percent (0-100)
+                            of rows per source (Bernoulli sampling)
+      --seed SEED           Random seed for --sample-k/--sample-pct
+                            reproducibility
       -c CUSHION, --cushion CUSHION
                             Extra length to pad column sizes with
       --save-metadata-to FILENAME

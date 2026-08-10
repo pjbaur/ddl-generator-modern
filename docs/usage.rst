@@ -100,7 +100,8 @@ Options
 
 ``--count-only``
     Report row counts per source and skip DDL/INSERT generation. Always
-    reports the true total, ignoring ``--limit``/``--every-nth``. Cheap for
+    reports the true total, ignoring ``--limit``/``--every-nth``/
+    ``--sample-k``/``--sample-pct``. Cheap for
     xlsx/SQLAlchemy/MongoDB sources; requires a full read for CSV/JSON/YAML/
     HTML/``.xls`` sources.
 
@@ -116,16 +117,32 @@ Options
     Reservoir-sample exactly K rows per source (Algorithm R) instead of
     reading all rows. Gives an unbiased random sample without needing to
     know the source's total row count upfront. Cannot be combined with
-    ``--limit`` or ``--every-nth``. Applies K independently per matched
-    file when a source expands to multiple files (glob patterns) or
-    multiple sheets (.xls/.xlsx).
+    ``--limit``, ``--every-nth``, or ``--sample-pct``. Applies K
+    independently per matched file when a source expands to multiple files
+    (glob patterns) or multiple sheets (.xls/.xlsx).
+
+``--sample-pct``
+    Keep each row independently with probability ``PCT / 100``
+    (``0 < PCT <= 100``, fractions like ``0.5`` allowed) -- Bernoulli
+    sampling. Use it when the sample should scale with the source rather
+    than stay pinned at a fixed count; use ``--sample-k`` when the exact
+    number of rows matters, since the count here is approximate (~N * p),
+    not exact. Unlike ``--sample-k``, which must drain the whole source
+    before yielding anything, this decides row by row and streams. A
+    non-empty source always yields at least one row: if the filter selects
+    nothing, one row chosen uniformly at random from the whole source is
+    emitted instead. An empty source still yields nothing. Cannot be
+    combined with ``--limit``, ``--every-nth``, or ``--sample-k``. Applied
+    independently per matched file when a source expands to multiple files
+    or sheets, so the one-row floor is per file, not per run.
 
 ``--seed``
-    Random seed for ``--sample-k`` reproducibility. Optional; omit for an
-    unseeded (non-reproducible) sample. Requires ``--sample-k``. When a
-    source expands to multiple files/sheets, each subsource gets the seed
-    offset by its index (``seed + 0``, ``seed + 1``, ...) so samples stay
-    independent across files rather than picking identical positions.
+    Random seed for ``--sample-k``/``--sample-pct`` reproducibility.
+    Optional; omit for an unseeded (non-reproducible) sample. Requires one
+    of those two flags. When a source expands to multiple files/sheets,
+    each subsource gets the seed offset by its index (``seed + 0``,
+    ``seed + 1``, ...) so samples stay independent across files rather than
+    picking identical positions.
 
 ``-c``, ``--cushion``
     Extra length to pad column sizes

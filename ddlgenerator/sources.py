@@ -331,7 +331,9 @@ class Source:
         every_nth: Sample every Nth row instead of yielding every row
         sample_k: Reservoir-sample exactly this many rows instead of
             yielding every row
-        seed: Random seed for sample_k reproducibility
+        sample_pct: Bernoulli-sample approximately this percent of rows
+            instead of yielding every row
+        seed: Random seed for sample_k/sample_pct reproducibility
 
     ``every_nth`` selects raw 1-indexed rows N, 2N, 3N, ... from the
     underlying stream (0-indexed ``% N == N-1``) -- e.g. every_nth=3 over
@@ -343,6 +345,17 @@ class Source:
     in their original relative order. Unlike ``limit``/``every_nth``, it
     requires no upfront knowledge of the source's total row count and
     cannot be combined with either.
+
+    ``sample_pct`` keeps each row independently with probability
+    ``sample_pct / 100``, so the number of rows yielded is approximate
+    (~N * p), not exact -- that is the tradeoff for deciding row by row
+    and never buffering, the way ``every_nth`` does. Use ``sample_k`` when
+    an exact count matters. As a floor, a non-empty source always yields
+    at least one row: while nothing has been yielded, a size-1 reservoir
+    of the rows seen so far is maintained, and it is served if the source
+    runs out having selected nothing. An empty source still yields
+    nothing. ``sample_pct`` cannot be combined with ``limit``,
+    ``every_nth``, or ``sample_k``.
     """
 
     table_count = 0
@@ -354,7 +367,8 @@ class Source:
     def __init__(self, src: Any, limit: int | None = None,
                  fieldnames: Any = None, table: str = '*',
                  every_nth: int | None = None, engine: Any = None,
-                 sample_k: int | None = None, seed: int | None = None) -> None:
+                 sample_k: int | None = None, seed: int | None = None,
+                 sample_pct: float | None = None) -> None:
         """
         Initialize a data source.
 
@@ -368,7 +382,11 @@ class Source:
                 a MetaData object (SA 2.x MetaData carries no engine of its
                 own -- there is no ``meta.bind`` to fall back on)
             sample_k: Reservoir-sample exactly this many rows (Algorithm R)
-            seed: Random seed for sample_k reproducibility; requires sample_k
+            seed: Random seed for sample_k/sample_pct reproducibility;
+                requires one of them
+            sample_pct: Keep each row with probability sample_pct / 100
+                (0 < sample_pct <= 100); approximate row count, minimum one
+                row from a non-empty source
         """
         self.counter = 0
         self.limit = limit
@@ -380,13 +398,31 @@ class Source:
             raise ValueError(f"sample_k must be a positive integer, got {sample_k}")
         if sample_k is not None and (limit is not None or every_nth is not None):
             raise ValueError("sample_k cannot be combined with limit or every_nth")
-        if seed is not None and sample_k is None:
-            raise ValueError("seed requires sample_k")
+        if sample_pct is not None and not 0 < sample_pct <= 100:
+            raise ValueError(
+                f"sample_pct must be greater than 0 and at most 100, got {sample_pct}")
+        if sample_pct is not None and (limit is not None or every_nth is not None
+                                       or sample_k is not None):
+            raise ValueError(
+                "sample_pct cannot be combined with limit, every_nth, or sample_k")
+        if seed is not None and sample_k is None and sample_pct is None:
+            raise ValueError("seed requires sample_k or sample_pct")
         self.sample_k = sample_k
+        self.sample_pct = sample_pct
         self.seed = seed
         self._rng = random.Random(seed)
         self._reservoir: list | None = None
         self._reservoir_pos = 0
+        self._sample_prob = None if sample_pct is None else sample_pct / 100.0
+        # Separate stream so the Bernoulli keep/drop decisions stay a clean
+        # function of (seed, row index), undisturbed by floor bookkeeping.
+        # A string-derived seed also cannot collide with the ``seed + idx``
+        # offsets _multiple_sources hands to subsources.
+        self._fallback_rng = random.Random(None if seed is None else f"{seed}:pct-fallback")
+        self._pct_yielded = 0
+        self._pct_seen = 0
+        self._fallback_row: Any = None
+        self._fallback_served = False
         self.table_name = f'Table{Source.table_count}'
         self.fieldnames = fieldnames
         self.db_engine = None
@@ -658,16 +694,19 @@ class Source:
 
     def _multiple_sources(self, sources: Iterable) -> None:
         """Combine multiple sources into one iterator."""
-        # Algorithm R depends only on row index, not content, so forwarding
-        # the same seed to every subsource would pick identical positional
-        # indices from each. Offset by subsource index for independent samples.
+        # Algorithm R and Bernoulli sampling both depend only on row index,
+        # not content, so forwarding the same seed to every subsource would
+        # pick identical positional indices from each. Offset by subsource
+        # index for independent samples.
         subsources = [Source(s, limit=self.limit, every_nth=self.every_nth,
-                             sample_k=self.sample_k,
+                             sample_k=self.sample_k, sample_pct=self.sample_pct,
                              seed=None if self.seed is None else self.seed + idx)
                       for idx, s in enumerate(sources)]
         self.limit = None  # limit already applied to subsources
         self.every_nth = None  # stride already applied to subsources
         self.sample_k = None  # reservoir sampling already applied to subsources
+        self.sample_pct = None  # percent sampling already applied to subsources
+        self._sample_prob = None
         self.seed = None  # seed already applied to subsources
         self.generator = itertools.chain.from_iterable(subsources)
 
@@ -693,6 +732,28 @@ class Source:
             row = self._reservoir[self._reservoir_pos]
             self._reservoir_pos += 1
             return row
+        if self._sample_prob is not None:
+            if self._fallback_served:
+                raise StopIteration
+            while True:
+                try:
+                    row = next(self.generator)
+                except StopIteration:
+                    # Nothing survived the filter: serve the floor row, so a
+                    # non-empty source never infers DDL from zero rows.
+                    if self._pct_yielded == 0 and self._fallback_row is not None:
+                        self._fallback_served = True
+                        return self._fallback_row
+                    raise
+                if self._pct_yielded == 0:
+                    # Size-1 reservoir over rows seen so far, maintained only
+                    # while the floor is still reachable.
+                    self._pct_seen += 1
+                    if self._fallback_rng.randrange(self._pct_seen) == 0:
+                        self._fallback_row = row
+                if self._rng.random() < self._sample_prob:
+                    self._pct_yielded += 1
+                    return row
         self.counter += 1
         if self.limit and (self.counter > self.limit):
             raise StopIteration
@@ -730,8 +791,8 @@ class Source:
         Source and consuming its generator otherwise (CSV/JSON/YAML/HTML/
         .xls/generators -- these formats have no way to count without a
         full read/parse). Always reports the true total; ignores
-        limit/every_nth/sample_k/seed entirely (this is a survey helper,
-        not a sampled read).
+        limit/every_nth/sample_k/sample_pct/seed entirely (this is a survey
+        helper, not a sampled read).
 
         Kept as a separate dispatch from __init__'s _source_is_* tree rather
         than threading a count-only flag through it: the xlsx optimization
@@ -780,7 +841,8 @@ class Source:
 def sqlalchemy_table_sources(url: str, limit: int | None = None,
                              every_nth: int | None = None,
                              sample_k: int | None = None,
-                             seed: int | None = None) -> Iterator['Source']:
+                             seed: int | None = None,
+                             sample_pct: float | None = None) -> Iterator['Source']:
     """
     Yield Source objects for each table in a SQLAlchemy database.
 
@@ -791,7 +853,9 @@ def sqlalchemy_table_sources(url: str, limit: int | None = None,
         limit: Maximum number of rows to read per table
         every_nth: Sample every Nth row per table instead of reading all rows
         sample_k: Reservoir-sample exactly this many rows per table
-        seed: Random seed for sample_k reproducibility
+        seed: Random seed for sample_k/sample_pct reproducibility
+        sample_pct: Bernoulli-sample approximately this percent of rows
+            per table
 
     Yields:
         Source objects, one per table
@@ -805,7 +869,8 @@ def sqlalchemy_table_sources(url: str, limit: int | None = None,
 
     for table in meta.sorted_tables:
         yield Source(meta, table=table.name, engine=engine, limit=limit,
-                     every_nth=every_nth, sample_k=sample_k, seed=seed)
+                     every_nth=every_nth, sample_k=sample_k, seed=seed,
+                     sample_pct=sample_pct)
 
 
 def count_sqlalchemy_tables(url: str, table: str = '*') -> list:
