@@ -8,6 +8,7 @@ Covers: varying_length_text, reorder, force_pk, limit,
         security tests for blocked extensions, SQL injection prevention, YAML safety.
 """
 
+import datetime
 import io
 import json
 import os
@@ -244,6 +245,50 @@ class TestSQLAlchemyInserts:
         namespace["conn"].commit()
         rows = namespace["conn"].execute(sa.select(namespace["test_sqla_run"]))
         assert [tuple(r) for r in rows] == [(1, "test", Decimal("42.5"))]
+
+    def test_values_are_coerced_to_the_inferred_column_type(self):
+        """Bind parameters must be Python objects matching the column type.
+
+        The emitted mapping was built from the raw source row, so a source
+        string reached a typed column and SQLAlchemy rejected it:
+        "SQLite DateTime type only accepts Python datetime and date objects".
+        The SQL dialects coerce the same values via _prep_datum.
+        """
+        tbl = Table(here("knights.yaml"))
+        output = "\n".join(tbl.inserts(dialect="sqlalchemy"))
+        # dob is DateTime, brave is Boolean, kg is DECIMAL
+        assert "datetime.datetime(471, 1, 9, 0, 0)" in output
+        assert "'dob': '9 jan 471'" not in output
+        assert "'brave': True" in output and "'brave': False" in output
+        assert "'brave': 'y'" not in output
+        assert "Decimal('0.0691')" in output
+
+    def test_blank_values_become_none(self):
+        data = [{"id": 1, "name": "filled"}, {"id": 2, "name": "  "}]
+        tbl = Table(data, table_name="test_sqla_blank")
+        output = "\n".join(tbl.inserts(dialect="sqlalchemy"))
+        assert "'name': None" in output
+
+    def test_generated_inserts_execute_for_typed_columns(self, tmp_path):
+        """End to end for a source whose columns are not all strings."""
+        tbl = Table(here("knights.yaml"))
+        module = tmp_path / "generated.py"
+        module.write_text("{}\n{}\n{}\n".format(
+            sqla_head, tbl.sqlalchemy(),
+            "\n".join(tbl.inserts(dialect="sqlalchemy"))))
+        namespace = runpy.run_path(str(module))
+        namespace["insert_knights"](namespace["knights"], namespace["conn"])
+        namespace["conn"].commit()
+        rows = list(namespace["conn"].execute(
+            sa.select(namespace["knights"]).order_by(
+                namespace["knights"].c.name)))
+        assert [r.name for r in rows] == ["Gawain", "Lancelot", "Reepacheep",
+                                          "Robin"]
+        by_name = {r.name: r for r in rows}
+        assert by_name["Lancelot"].dob == datetime.datetime(471, 1, 9, 0, 0)
+        assert by_name["Lancelot"].brave is True
+        assert by_name["Robin"].brave is False
+        assert by_name["Gawain"].dob is None
 
 
 # ---------------------------------------------------------------------------

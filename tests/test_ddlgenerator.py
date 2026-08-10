@@ -258,6 +258,23 @@ class TestSqlaInserterCall:
         assert '"""' in result
         assert "test data" in result.lower() or "populate" in result.lower()
 
+    def test_generated_function_defines_without_error(self):
+        """The emitted code is plain Python, so it must not use names the
+        generated module never imports.
+
+        A blanket annotation pass put `meta: Any, conn: Any` in this template;
+        `Any` is not in scope where the code lands, so loading the generated
+        module raised NameError before any insert could run.
+        """
+        from ddlgenerator.ddlgenerator import sqla_head, sqla_inserter_call
+
+        module = (f"{sqla_head}\n"
+                  "def insert_users(tbl, conn): pass\n"
+                  f"{sqla_inserter_call(['users'])}")
+        namespace: dict = {}
+        exec(compile(module, "<generated>", "exec"), namespace)
+        assert callable(namespace["insert_test_rows"])
+
     def test_commits_after_inserting(self):
         """SQLAlchemy 2.0 dropped autocommit, so the rows need an explicit commit."""
         from ddlgenerator.ddlgenerator import sqla_inserter_call
