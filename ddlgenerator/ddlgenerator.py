@@ -633,9 +633,13 @@ class Table:
                 yield f"\ndef insert_{self.table_name}(tbl, conn):"
                 yield "    inserter = tbl.insert()"
                 for row in self.data:
-                    yield textwrap.indent(f"conn.execute(inserter, **{str(dict(row))})",
+                    # SQLAlchemy 2.x takes bind parameters as a mapping
+                    # argument, not as keyword arguments
+                    yield textwrap.indent(f"conn.execute(inserter, {str(dict(row))})",
                                           "    ")
-                for seq_updater in emit_db_sequence_updates(self.source.db_engine):
+                # only a Source reading from a live database has an engine
+                for seq_updater in emit_db_sequence_updates(
+                        getattr(self.source, 'db_engine', None)):
                     yield f'    conn.execute("{seq_updater}")'
             else:
                 yield f"\n# No data for {self.table.name}"
@@ -772,6 +776,7 @@ def insert_test_rows(meta: Any, conn: Any) -> None:
     Call ``meta.reflect()`` before passing calling this."""
 
 {}
+    conn.commit()
 '''.format('\n'.join(f"    insert_{t}(meta.tables['{t}'], conn)"
                      for t in table_names))
 
