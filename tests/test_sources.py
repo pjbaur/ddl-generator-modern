@@ -10,6 +10,8 @@ Covers: _ensure_rows, _ordered_yaml_load, _json_loader, _interpret_fieldnames,
 import contextlib
 import os
 import pathlib
+import random
+from collections import Counter
 from io import StringIO
 from unittest.mock import MagicMock, Mock, patch
 
@@ -783,6 +785,38 @@ class TestSourceSamplePct:
         assert len(set(floor_rows)) > 1
         assert floor_rows != [1] * len(floor_rows)
 
+    def test_sample_pct_floor_row_is_spread_over_the_whole_source(self):
+        """Stronger than "not always row 1": over many seeds the floor row
+        should reach every position, which a head-biased or tail-biased
+        pick would not. Deterministic -- every seed here is fixed."""
+        floor_rows = []
+        for seed in range(200):
+            data = [{"id": i} for i in range(1, 11)]
+            result = list(Source(iter(data), sample_pct=0.01, seed=seed))
+            assert len(result) == 1  # 0.01% never selects anything here
+            floor_rows.append(result[0]["id"])
+        assert set(floor_rows) == set(range(1, 11))
+        # no position should dominate the way a "remember row 1" bug would
+        assert max(Counter(floor_rows).values()) < len(floor_rows) / 2
+
+    def test_sample_pct_decisions_are_independent_of_floor_bookkeeping(self):
+        """The floor keeps its own RNG stream so Bernoulli keep/drop stays a
+        clean function of (seed, row index). Pinning it against a plain
+        random.Random means merging the two streams breaks this test rather
+        than silently shifting which rows every sample returns."""
+        n, pct, seed = 500, 20, 11
+        rng = random.Random(seed)
+        expected = [i for i in range(1, n + 1) if rng.random() < pct / 100]
+        data = [{"id": i} for i in range(1, n + 1)]
+        actual = [r["id"] for r in Source(iter(data), sample_pct=pct, seed=seed)]
+        assert actual == expected
+
+    def test_sample_pct_accepts_a_fractional_percent(self):
+        """0 < pct < 1 is legal and samples far more sparsely than 1%."""
+        data = [{"id": i} for i in range(1, 10001)]
+        result = list(Source(iter(data), sample_pct=0.5, seed=3))
+        assert 20 < len(result) < 90  # ~0.5% of 10000 == ~50
+
     def test_sample_pct_applies_per_matched_file_in_glob(self, tmp_path):
         (tmp_path / "a.json").write_text(
             '[' + ','.join(f'{{"id": {i}}}' for i in range(1, 21)) + ']'
@@ -821,6 +855,30 @@ class TestSourceSamplePct:
         relative_a = sorted(r["id"] - 1 for r in result if r["id"] < 100)
         relative_b = sorted(r["id"] - 101 for r in result if r["id"] >= 100)
         assert relative_a != relative_b
+
+    @pytest.mark.skipif(openpyxl is None, reason="openpyxl not installed")
+    def test_sample_pct_applies_per_sheet_in_a_workbook(self, tmp_path):
+        """Multi-sheet spreadsheets expand through _multiple_sources the same
+        way globs do, so the floor and the seed offset are per sheet."""
+        workbook = openpyxl.Workbook()
+        for sheet_idx, title in enumerate(("one", "two", "three")):
+            sheet = workbook.create_sheet(title) if sheet_idx else workbook.active
+            sheet.title = title
+            sheet.append(["id", "name"])
+            for i in range(1, 11):
+                sheet.append([i + sheet_idx * 100, f"{title}{i}"])
+        path = tmp_path / "sheets.xlsx"
+        workbook.save(path)
+
+        floored = list(Source(str(path), sample_pct=1, seed=0))
+        assert len(floored) == 3  # one row per sheet, not one per workbook
+        assert sorted(r["id"] // 100 for r in floored) == [0, 1, 2]
+
+        sampled = list(Source(str(path), sample_pct=50, seed=3))
+        per_sheet = {s: sorted(r["id"] % 100 for r in sampled if r["id"] // 100 == s)
+                     for s in (0, 1, 2)}
+        assert all(rows for rows in per_sheet.values())
+        assert len({tuple(rows) for rows in per_sheet.values()}) > 1
 
 
 # ---------------------------------------------------------------------------

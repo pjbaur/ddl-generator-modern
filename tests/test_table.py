@@ -308,6 +308,35 @@ class TestSamplePctWiring:
         assert set(child_fks) == sampled_ids
         assert Counter(child_fks) == Counter({2: 2, 3: 2, 11: 2})
 
+    def test_sample_pct_floor_row_keeps_its_children(self, tmp_path):
+        """The >=1 floor row is served from a different code path than a
+        normally-selected row (it is emitted on StopIteration), so its
+        children need the same parent/child correspondence. At 1% with
+        seed 0 nothing is selected and the floor emits parent id 12.
+        """
+        data = [
+            OrderedDict([
+                ("id", i),
+                ("name", f"parent{i}"),
+                ("items", [{"val": f"item{i}_0"}, {"val": f"item{i}_1"}]),
+            ])
+            for i in range(20)
+        ]
+        data_file = tmp_path / "nested.json"
+        data_file.write_text(json.dumps(data))
+
+        tbl = Table(str(data_file), table_name="parent", pk_name="id",
+                    force_pk=True, sample_pct=1, seed=0)
+
+        sampled_parents = list(tbl.data)
+        assert len(sampled_parents) == 1
+        assert sampled_parents[0]["id"] == 12
+
+        child_rows = list(tbl.children["items"].data)
+        assert len(child_rows) == 2
+        assert [row["parent_id"] for row in child_rows] == [12, 12]
+        assert {row["val"] for row in child_rows} == {"item12_0", "item12_1"}
+
 
 # ---------------------------------------------------------------------------
 # _validate_data_source
