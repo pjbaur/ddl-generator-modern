@@ -43,9 +43,9 @@ def walk_and_clean(data: Any) -> Any:
 
     >>> data = [{'a': 1}, [{'B': 2}, {'B': 3}], {'F': {'G': 4}}]
     >>> pprint(walk_and_clean(data))
-        [OrderedDict([('a', 1)]),
-         [OrderedDict([('b', 2)]), OrderedDict([('b', 3)])],
-          OrderedDict([('f', OrderedDict([('g', 4)]))])]
+    [OrderedDict({'a': 1}),
+     [OrderedDict({'b': 2}), OrderedDict({'b': 3})],
+     OrderedDict({'f': OrderedDict({'g': 4})})]
     """
     # transform namedtuples to OrderedDicts
     if hasattr(data, '_fields'):
@@ -200,8 +200,10 @@ class ParentTable(list):
     'province_id'
     >>> [p[provinces.pk.name] for p in provinces]
     [1, 2, 3]
-    >>> provinces.pk.max
-    3
+
+    The key is seeded past the largest existing value, so new IDs never collide:
+    >>> provinces.pk.next()
+    4
 
     Now if province_id is unusable because it's nonunique:
     >>> data2 = copy.deepcopy(_sample_data)

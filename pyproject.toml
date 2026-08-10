@@ -60,7 +60,10 @@ Repository = "https://github.com/pjbaur/ddl-generator-modern"
 include = ["ddlgenerator*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# ddlgenerator/ is collected for its doctests only; --doctest-modules keeps the
+# examples in docstrings from silently drifting away from the code.
+testpaths = ["tests", "ddlgenerator"]
+addopts = "--doctest-modules"
 markers = [
     "mongo: tests requiring a running MongoDB instance",
 ]

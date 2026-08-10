@@ -94,13 +94,15 @@ def _ensure_rows(result: Any) -> Any:
     >>> _ensure_rows({"a": 1, "b": 2})
     [{'a': 1, 'b': 2}]
     >>> _ensure_rows({"a": {"a1": 1, "a2": 2}, "b": {"b1": 1, "b2": 2}})
-    [{'a1': 1, 'a2': 2, 'name_': 'a'}, {'b1': 1, 'b2': 2, 'name_': 'b'}]
+    [{'name_': 'a', 'a1': 1, 'a2': 2}, {'name_': 'b', 'b1': 1, 'b2': 2}]
     >>> _ensure_rows([{"a1": 1, "a2": 2}, {"b1": 1, "b2": 2}])
     [{'a1': 1, 'a2': 2}, {'b1': 1, 'b2': 2}]
+    >>> _ensure_rows({})
+    []
     """
     if isinstance(result, dict):
         if not result:
-            result = []
+            return []
         # if it's a dict of dicts, convert to a list of dicts
         if not [s for s in result.values() if not hasattr(s, 'keys')]:
             result = [dict(name_=k, **result[k]) for k in result]
