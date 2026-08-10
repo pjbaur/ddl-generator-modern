@@ -269,6 +269,58 @@ class TestSQLAlchemyInserts:
         output = "\n".join(tbl.inserts(dialect="sqlalchemy"))
         assert "'name': None" in output
 
+    def test_import_line_covers_types_used_only_by_children(self, tmp_path):
+        """The import line was scanned off the top table's definition alone.
+
+        A type used only by a child table was therefore never imported, and
+        the generated module died with NameError before defining anything.
+        """
+        data = [{"name": "alpha",
+                 "team": [{"name": "t1", "member": [{"who": "a"}, {"who": "b"}]},
+                          {"name": "t2", "member": [{"who": "c"}]}]}]
+        model = Table(data, table_name="org").sqlalchemy()
+        assert "Integer" in model  # used by the child tables' id columns
+        module = tmp_path / "generated.py"
+        module.write_text(f"{sqla_head}\n{model}\n")
+        namespace = runpy.run_path(str(module))
+        assert {"org", "team", "_member"} <= set(namespace)
+
+    def test_child_tables_get_insert_functions(self):
+        """Nested data splits into child tables, which also need inserts.
+
+        The SQL branch recursed into self.children; the SQLAlchemy branch did
+        not, so a child table was created by the generated model and then left
+        empty with no way to populate it.
+        """
+        tbl = Table(here("birds.yaml"))
+        output = "\n".join(tbl.inserts(dialect="sqlalchemy"))
+        assert "def insert_birds(" in output
+        assert "def insert_state(" in output
+        # the parent's rows must be insertable before the child's reference them
+        assert output.index("def insert_birds(") < output.index("def insert_state(")
+
+    def test_child_inserts_execute_and_keep_the_foreign_key(self, tmp_path):
+        tbl = Table(here("birds.yaml"))
+        module = tmp_path / "generated.py"
+        module.write_text("{}\n{}\n{}\n".format(
+            sqla_head, tbl.sqlalchemy(),
+            "\n".join(tbl.inserts(dialect="sqlalchemy"))))
+        namespace = runpy.run_path(str(module))
+        namespace["insert_birds"](namespace["birds"], namespace["conn"])
+        namespace["insert_state"](namespace["state"], namespace["conn"])
+        namespace["conn"].commit()
+
+        birds = namespace["birds"]
+        state = namespace["state"]
+        joined = namespace["conn"].execute(
+            sa.select(birds.c.common_name, state.c.abbrev)
+            .join_from(birds, state, birds.c.birds_id == state.c.birds_id)
+            .order_by(state.c.abbrev))
+        rows = [tuple(r) for r in joined]
+        assert len(rows) == 8
+        assert ("Great Northern Loon", "MN") in rows
+        assert ("Northern Cardinal", "OH") in rows
+
     def test_generated_inserts_execute_for_typed_columns(self, tmp_path):
         """End to end for a source whose columns are not all strings."""
         tbl = Table(here("knights.yaml"))
