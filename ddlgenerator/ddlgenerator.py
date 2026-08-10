@@ -550,7 +550,9 @@ class Table:
         parts.extend(c.sqlalchemy(is_top=False) for c in self.children.values())
         result = "\n{} = {}".format(self.table_name, "\n".join(parts))
         if is_top:
-            found_imports = set(self.capitalized_words.findall(table_def))
+            # scan the child definitions too, not just this table's -- a type
+            # used only by a child was otherwise left out of the import line
+            found_imports = set(self.capitalized_words.findall(result))
             found_imports &= set(dir(sa))
             result = self.sqlalchemy_setup_template % (
                 ", ".join(sorted(found_imports)), result)
@@ -668,6 +670,11 @@ class Table:
                     yield f'    conn.execute("{seq_updater}")'
             else:
                 yield f"\n# No data for {self.table.name}"
+            # nested data splits into child tables, which the generated model
+            # defines and so must also be able to populate. Parent first, so
+            # the rows its children reference can be inserted in order.
+            for child in self.children.values():
+                yield from child.inserts(dialect)
         else:
             dialect = self._dialect(dialect)
             needs_conversion = self._needs_conversion()
