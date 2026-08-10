@@ -88,10 +88,7 @@ class TestEnsureRows:
         assert result == data
 
     def test_empty_dict_returns_empty_list(self):
-        # Note: The actual implementation has a bug where empty dict raises AttributeError
-        # This tests the documented behavior (would need source fix to work)
-        # For now, skip this test as it reveals a bug in _ensure_rows
-        pytest.skip("Empty dict handling has bug in _ensure_rows - line 96 calls .values() on list")
+        assert _ensure_rows({}) == []
 
     def test_dict_with_mixed_values(self):
         """Dict with non-dict values should wrap as single item list."""
