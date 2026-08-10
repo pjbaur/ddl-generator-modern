@@ -690,6 +690,140 @@ class TestSourceSampleK:
 
 
 # ---------------------------------------------------------------------------
+# Source class - sample_pct (Bernoulli sampling)
+# ---------------------------------------------------------------------------
+class TestSourceSamplePctValidation:
+    def test_sample_pct_zero_raises(self):
+        with pytest.raises(ValueError,
+                           match="sample_pct must be greater than 0 and at most 100"):
+            Source(iter([{"id": 1}]), sample_pct=0)
+
+    def test_sample_pct_negative_raises(self):
+        with pytest.raises(ValueError,
+                           match="sample_pct must be greater than 0 and at most 100"):
+            Source(iter([{"id": 1}]), sample_pct=-5)
+
+    def test_sample_pct_over_100_raises(self):
+        with pytest.raises(ValueError,
+                           match="sample_pct must be greater than 0 and at most 100"):
+            Source(iter([{"id": 1}]), sample_pct=101)
+
+    def test_sample_pct_combined_with_limit_raises(self):
+        with pytest.raises(
+                ValueError,
+                match="sample_pct cannot be combined with limit, every_nth, or sample_k"):
+            Source(iter([{"id": 1}]), sample_pct=10, limit=1)
+
+    def test_sample_pct_combined_with_every_nth_raises(self):
+        with pytest.raises(
+                ValueError,
+                match="sample_pct cannot be combined with limit, every_nth, or sample_k"):
+            Source(iter([{"id": 1}]), sample_pct=10, every_nth=2)
+
+    def test_sample_pct_combined_with_sample_k_raises(self):
+        with pytest.raises(
+                ValueError,
+                match="sample_pct cannot be combined with limit, every_nth, or sample_k"):
+            Source(iter([{"id": 1}]), sample_pct=10, sample_k=1)
+
+    def test_seed_with_sample_pct_alone_is_allowed(self):
+        src = Source(iter([{"id": 1}]), sample_pct=100, seed=42)
+        assert [r["id"] for r in src] == [1]
+
+
+class TestSourceSamplePct:
+    def test_sample_pct_100_keeps_every_row(self):
+        data = [{"id": i} for i in range(1, 101)]
+        src = Source(iter(data), sample_pct=100, seed=1)
+        assert [r["id"] for r in src] == list(range(1, 101))
+
+    def test_sample_pct_is_deterministic_with_same_seed(self):
+        data = [{"id": i} for i in range(1, 1001)]
+        result_a = list(Source(iter(data), sample_pct=10, seed=42))
+        result_b = list(Source(iter(data), sample_pct=10, seed=42))
+        assert [r["id"] for r in result_a] == [r["id"] for r in result_b]
+
+    def test_sample_pct_yields_approximately_the_requested_share(self):
+        """Bernoulli sampling gives an approximate count, not an exact one.
+        Seeded, so the count below is deterministic rather than flaky."""
+        data = [{"id": i} for i in range(1, 1001)]
+        result = list(Source(iter(data), sample_pct=10, seed=42))
+        assert len(result) == 90
+        assert 60 < len(result) < 140  # comfortably around 10% of 1000
+
+    def test_sample_pct_preserves_original_relative_order(self):
+        data = [{"id": i} for i in range(1, 501)]
+        result = [r["id"] for r in Source(iter(data), sample_pct=10, seed=7)]
+        assert result == sorted(result)
+
+    def test_sample_pct_on_empty_source_yields_nothing(self):
+        """The >=1 floor never manufactures a row out of an empty source."""
+        src = Source(iter([]), sample_pct=10, seed=1)
+        assert list(src) == []
+
+    def test_sample_pct_without_seed_still_yields_rows(self):
+        data = [{"id": i} for i in range(1, 1001)]
+        assert len(list(Source(iter(data), sample_pct=10))) > 0
+
+    def test_sample_pct_yields_at_least_one_row_when_nothing_survives(self):
+        """seed 0 selects no row from 10 rows at 1%, so the floor fires."""
+        data = [{"id": i} for i in range(1, 11)]
+        result = list(Source(iter(data), sample_pct=1, seed=0))
+        assert len(result) == 1
+
+    def test_sample_pct_floor_row_is_not_always_the_first_row(self):
+        """The floor row comes from a size-1 reservoir over the whole source,
+        not from simply remembering row 1, so it is unbiased."""
+        floor_rows = []
+        for seed in range(6):  # every one of these selects nothing at 1%
+            data = [{"id": i} for i in range(1, 11)]
+            result = list(Source(iter(data), sample_pct=1, seed=seed))
+            assert len(result) == 1
+            floor_rows.append(result[0]["id"])
+        assert len(set(floor_rows)) > 1
+        assert floor_rows != [1] * len(floor_rows)
+
+    def test_sample_pct_applies_per_matched_file_in_glob(self, tmp_path):
+        (tmp_path / "a.json").write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(1, 21)) + ']'
+        )
+        (tmp_path / "b.json").write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(101, 121)) + ']'
+        )
+        src = Source(str(tmp_path / "*.json"), sample_pct=25, seed=5)
+        result = list(src)
+        from_a = [r["id"] for r in result if r["id"] < 100]
+        from_b = [r["id"] for r in result if r["id"] >= 100]
+        assert len(from_a) > 0
+        assert len(from_b) > 0
+
+    def test_sample_pct_floor_applies_per_subsource(self, tmp_path):
+        """A percent low enough to select nothing still yields one row from
+        each matched file, not one row across the whole glob."""
+        for name, start in (("a.json", 1), ("b.json", 101), ("c.json", 201)):
+            (tmp_path / name).write_text(
+                '[' + ','.join(f'{{"id": {i}}}' for i in range(start, start + 10)) + ']'
+            )
+        result = list(Source(str(tmp_path / "*.json"), sample_pct=1, seed=0))
+        assert len(result) == 3
+
+    def test_sample_pct_seed_offset_gives_independent_positions_per_subsource(self, tmp_path):
+        """Bernoulli decisions are index-driven, not content-driven, so the
+        same seed forwarded unmodified to every subsource would pick identical
+        relative positions from each same-length file."""
+        (tmp_path / "a.json").write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(1, 21)) + ']'
+        )
+        (tmp_path / "b.json").write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(101, 121)) + ']'
+        )
+        result = list(Source(str(tmp_path / "*.json"), sample_pct=25, seed=5))
+        relative_a = sorted(r["id"] - 1 for r in result if r["id"] < 100)
+        relative_b = sorted(r["id"] - 101 for r in result if r["id"] >= 100)
+        assert relative_a != relative_b
+
+
+# ---------------------------------------------------------------------------
 # Source.count
 # ---------------------------------------------------------------------------
 class TestSourceCount:

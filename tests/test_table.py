@@ -264,6 +264,52 @@ class TestSampleKWiring:
 
 
 # ---------------------------------------------------------------------------
+# sample_pct / seed passthrough
+# ---------------------------------------------------------------------------
+class TestSamplePctWiring:
+    def test_sample_pct_reduces_row_count(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(1, 201)) + ']'
+        )
+        tbl = Table(str(data_file), sample_pct=10, seed=42)
+        assert 0 < len(tbl.data) < 200
+
+    def test_sample_pct_preserves_parent_child_correspondence(self, tmp_path):
+        """
+        Like sample_k, Bernoulli sampling happens in Source.__next__ before
+        reshape.unnest_children runs, so only the sampled parents' own
+        children survive -- no orphans, no cross-parent FK mismatches. With
+        sample_pct=25, seed=2 over 20 parents (ids 0..19), the Bernoulli
+        filter deterministically selects parent ids 2, 3, 11.
+        """
+        data = [
+            OrderedDict([
+                ("id", i),
+                ("name", f"parent{i}"),
+                ("items", [{"val": f"item{i}_0"}, {"val": f"item{i}_1"}]),
+            ])
+            for i in range(20)
+        ]
+        data_file = tmp_path / "nested.json"
+        data_file.write_text(json.dumps(data))
+
+        tbl = Table(str(data_file), table_name="parent", pk_name="id",
+                    force_pk=True, sample_pct=25, seed=2)
+
+        sampled_parents = list(tbl.data)
+        assert len(sampled_parents) == 3
+        sampled_ids = {row["id"] for row in sampled_parents}
+        assert sampled_ids == {2, 3, 11}
+
+        child_rows = list(tbl.children["items"].data)
+        assert len(child_rows) == 6
+        child_fks = [row["parent_id"] for row in child_rows]
+        assert set(child_fks) == sampled_ids
+        assert Counter(child_fks) == Counter({2: 2, 3: 2, 11: 2})
+
+
+# ---------------------------------------------------------------------------
 # _validate_data_source
 # ---------------------------------------------------------------------------
 class TestValidateDataSource:

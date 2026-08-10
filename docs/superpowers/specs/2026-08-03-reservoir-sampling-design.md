@@ -1,7 +1,15 @@
 # Reservoir-K sampling (`--sample-k`) design
 
-Status: approved 2026-08-03. Implements the deferred "percent/random sampling"
-item from the `--count-only`/`--every-nth` work (`215a7b5`, `073ce90`).
+Status: approved 2026-08-03, shipped in PR #8. Implements the deferred
+"percent/random sampling" item from the `--count-only`/`--every-nth` work
+(`215a7b5`, `073ce90`).
+
+> **Superseded in part, 2026-08-09.** The "Out of scope" entry below rules
+> percent-based sampling out and says it is "not reopened here." It was
+> reopened afterwards and shipped as `--sample-pct`; see
+> [2026-08-09-percent-sampling-design.md](2026-08-09-percent-sampling-design.md)
+> for what changed and why. Everything else in this document still holds —
+> `--sample-k` is unchanged.
 
 ## Problem
 

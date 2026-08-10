@@ -220,11 +220,65 @@ class TestSampleKValidation:
         with pytest.raises(ValueError, match="--sample-k cannot be combined with --limit or --every-nth"):
             generate(f"--sample-k 1 --every-nth 1 postgresql {data_file}")
 
-    def test_seed_without_sample_k_raises(self, tmp_path):
+    def test_seed_without_sample_k_or_sample_pct_raises(self, tmp_path):
         data_file = tmp_path / "data.json"
         data_file.write_text('[{"id": 1}]')
-        with pytest.raises(ValueError, match="--seed requires --sample-k"):
+        with pytest.raises(ValueError, match=r"--seed requires --sample-k or --sample-pct"):
             generate(f"--seed 42 postgresql {data_file}")
+
+
+class TestSamplePctValidation:
+    def test_sample_pct_zero_raises(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}]')
+        with pytest.raises(ValueError,
+                           match="--sample-pct must be greater than 0 and at most 100"):
+            generate(f"--sample-pct 0 postgresql {data_file}")
+
+    def test_sample_pct_negative_raises(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}]')
+        with pytest.raises(ValueError,
+                           match="--sample-pct must be greater than 0 and at most 100"):
+            generate(f"--sample-pct -5 postgresql {data_file}")
+
+    def test_sample_pct_over_100_raises(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}]')
+        with pytest.raises(ValueError,
+                           match="--sample-pct must be greater than 0 and at most 100"):
+            generate(f"--sample-pct 101 postgresql {data_file}")
+
+    def test_sample_pct_combined_with_limit_raises(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}]')
+        with pytest.raises(
+                ValueError,
+                match=r"--sample-pct cannot be combined with --limit, --every-nth, or --sample-k"):
+            generate(f"--sample-pct 10 --limit 1 postgresql {data_file}")
+
+    def test_sample_pct_combined_with_every_nth_raises(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}]')
+        with pytest.raises(
+                ValueError,
+                match=r"--sample-pct cannot be combined with --limit, --every-nth, or --sample-k"):
+            generate(f"--sample-pct 10 --every-nth 2 postgresql {data_file}")
+
+    def test_sample_pct_combined_with_sample_k_raises(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}]')
+        with pytest.raises(
+                ValueError,
+                match=r"--sample-pct cannot be combined with --limit, --every-nth, or --sample-k"):
+            generate(f"--sample-pct 10 --sample-k 1 postgresql {data_file}")
+
+    def test_seed_with_sample_pct_alone_is_allowed(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}]')
+        out = io.StringIO()
+        generate(f"--sample-pct 100 --seed 42 postgresql {data_file}", file=out)
+        assert "CREATE TABLE" in out.getvalue()
 
 
 class TestCountOnly:
@@ -282,6 +336,63 @@ class TestSampleKGeneration:
         out = io.StringIO()
         generate(f"--sample-k 5 --seed 1 -i postgresql sqlite:///{db_path}", file=out)
         assert out.getvalue().count("INSERT INTO") == 5
+
+
+class TestSamplePctGeneration:
+    def test_sample_pct_reduces_insert_count(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(1, 201)) + ']'
+        )
+        out = io.StringIO()
+        generate(f"--sample-pct 10 --seed 42 -i postgresql {data_file}", file=out)
+        n_sampled = out.getvalue().count("INSERT INTO")
+        assert 0 < n_sampled < 200
+        unsampled = io.StringIO()
+        generate(f"-i postgresql {data_file}", file=unsampled)
+        assert unsampled.getvalue().count("INSERT INTO") == 200
+
+    def test_sample_pct_is_reproducible_with_seed(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(1, 201)) + ']'
+        )
+        first, second = io.StringIO(), io.StringIO()
+        generate(f"--sample-pct 10 --seed 42 -i postgresql {data_file}", file=first)
+        generate(f"--sample-pct 10 --seed 42 -i postgresql {data_file}", file=second)
+        assert first.getvalue() == second.getvalue()
+
+    def test_sample_pct_yields_at_least_one_row_from_small_source(self, tmp_path):
+        """A percent too low to select anything still generates DDL rather
+        than failing on an empty table."""
+        data_file = tmp_path / "data.json"
+        data_file.write_text(
+            '[' + ','.join(f'{{"id": {i}}}' for i in range(1, 11)) + ']'
+        )
+        out = io.StringIO()
+        generate(f"--sample-pct 1 --seed 0 -i postgresql {data_file}", file=out)
+        assert out.getvalue().count("INSERT INTO") == 1
+
+    def test_count_only_ignores_sample_pct(self, tmp_path):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}, {"id": 2}, {"id": 3}]')
+        out = io.StringIO()
+        generate(f"--sample-pct 10 postgresql {data_file} --count-only", file=out)
+        assert "TOTAL: 3" in out.getvalue()
+
+    def test_sample_pct_applies_to_sqlalchemy_url(self, tmp_path):
+        import sqlalchemy as sa
+        db_path = tmp_path / "test.db"
+        engine = sa.create_engine(f"sqlite:///{db_path}")
+        with engine.connect() as connection:
+            connection.execute(sa.text("CREATE TABLE t (id INTEGER)"))
+            connection.execute(sa.text(
+                "INSERT INTO t VALUES " + ", ".join(f"({i})" for i in range(1, 201))
+            ))
+            connection.commit()
+        out = io.StringIO()
+        generate(f"--sample-pct 10 --seed 42 -i postgresql sqlite:///{db_path}", file=out)
+        assert 0 < out.getvalue().count("INSERT INTO") < 200
 
 
 # ---------------------------------------------------------------------------
