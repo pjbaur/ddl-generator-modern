@@ -37,6 +37,7 @@ from __future__ import annotations
 import copy
 import datetime
 import doctest
+import keyword
 import logging
 import os.path
 import pprint
@@ -548,7 +549,8 @@ class Table:
         table_def = table_def.replace("schema=", "\n  schema=")
         parts = [table_def, ]
         parts.extend(c.sqlalchemy(is_top=False) for c in self.children.values())
-        result = "\n{} = {}".format(self.table_name, "\n".join(parts))
+        result = "\n{} = {}".format(_python_variable_name(self.table_name),
+                                    "\n".join(parts))
         if is_top:
             # scan the child definitions too, not just this table's -- a type
             # used only by a child was otherwise left out of the import line
@@ -664,7 +666,7 @@ class Table:
         if dialect and dialect.startswith("sqla"):
             if self.data:
                 needs_conversion = self._needs_conversion()
-                yield f"\ndef insert_{self.table_name}(tbl, conn):"
+                yield f"\ndef insert_{_python_identifier(self.table_name)}(tbl, conn):"
                 yield "    inserter = tbl.insert()"
                 for row in self.data:
                     # SQLAlchemy binds Python objects, so the raw source values
@@ -802,6 +804,49 @@ engine = create_engine(r'sqlite:///:memory:')
 metadata = MetaData()
 conn = engine.connect()"""
 
+# Lowercase names ``sqla_head`` binds.  A table variable of the same name
+# shadows them and breaks the lines that follow -- rebinding ``metadata``
+# kills the ``metadata.create_all(engine)`` that ends the model.  Only
+# lowercase names can collide: table names are lowercased, and everything
+# else the header imports is capitalized.
+_names_bound_by_sqla_head = frozenset(['conn', 'create_engine', 'datetime',
+                                       'engine', 'metadata'])
+
+_illegal_in_python_name = re.compile(r'[^a-zA-Z0-9_]')
+
+
+def _python_identifier(table_name: str) -> str:
+    """Make ``table_name`` usable inside a Python identifier.
+
+    Only the generated Python is adjusted; the SQL table name it refers to is
+    left exactly as ``clean_key_name`` produced it.  That function makes a
+    name safe for *SQL*, which is a different set of rules -- it keeps ``$``
+    and ``#``, identifier characters in Oracle and SQL Server that Python
+    rejects, so ``price$usd`` reached the output untouched and the generated
+    module would not parse.
+    """
+    result = _illegal_in_python_name.sub('_', table_name)
+    if not result or result[0].isdigit():
+        result = f'_{result}'
+    return result
+
+
+def _python_variable_name(table_name: str) -> str:
+    """Make ``table_name`` safe to bind as a variable in the generated model.
+
+    Beyond the character rules, a bare binding must dodge Python keywords
+    and the names ``sqla_head`` already binds.  Neither applies to the
+    ``insert_*`` functions, whose prefix rules both out -- ``insert_class``
+    and ``insert_metadata`` are perfectly good names.
+
+    Soft keywords (``match``, ``case``, ``type``) are legal variable names
+    and are left alone.
+    """
+    result = _python_identifier(table_name)
+    if keyword.iskeyword(result) or result in _names_bound_by_sqla_head:
+        result = f'_{result}'
+    return result
+
 
 def sqla_inserter_call(table_names: Iterable[str]) -> str:
     """Generate Python code string that defines an insert_test_rows function.
@@ -823,7 +868,7 @@ def insert_test_rows(meta, conn):
 
 {}
     conn.commit()
-'''.format('\n'.join(f"    insert_{t}(meta.tables['{t}'], conn)"
+'''.format('\n'.join(f"    insert_{_python_identifier(t)}(meta.tables['{t}'], conn)"
                      for t in table_names))
 
 

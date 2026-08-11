@@ -250,6 +250,15 @@ class TestSqlaInserterCall:
         result = sqla_inserter_call(["my_table"])
         assert "insert_my_table(meta.tables['my_table'], conn)" in result
 
+    def test_name_illegal_in_python_is_escaped_in_the_call_only(self):
+        """``$`` is an identifier character in Oracle and SQL Server, so it
+        survives into the table name; the function name it builds has to drop
+        it, while the lookup key keeps the real SQL name."""
+        from ddlgenerator.ddlgenerator import sqla_inserter_call
+
+        result = sqla_inserter_call(["price$usd"])
+        assert "insert_price_usd(meta.tables['price$usd'], conn)" in result
+
     def test_docstring_included(self):
         """Generated function should include docstring."""
         from ddlgenerator.ddlgenerator import sqla_inserter_call

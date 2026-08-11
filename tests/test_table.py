@@ -204,6 +204,99 @@ class TestSQLAlchemyModel:
 
 
 # ---------------------------------------------------------------------------
+# SQLAlchemy model variable names
+# ---------------------------------------------------------------------------
+class TestSQLAlchemyVariableNames:
+    """The model binds each table to a bare Python variable named after the
+    table.  ``clean_key_name`` only makes a name safe for *SQL*, so names
+    that are legal there and illegal in Python reached the output untouched
+    and the generated module would not even parse."""
+
+    def _run(self, tmp_path, tbl):
+        module = tmp_path / "generated.py"
+        module.write_text(f"{sqla_head}\n{tbl.sqlalchemy()}\n")
+        return runpy.run_path(str(module))
+
+    def test_python_keyword_name(self, tmp_path):
+        """``class = Table('class', ...)`` is a SyntaxError."""
+        tbl = Table([{"grade": 1}], table_name="class")
+        assert "Table('class'" in tbl.sqlalchemy()  # SQL name is untouched
+        namespace = self._run(tmp_path, tbl)
+        assert namespace["_class"].name == "class"
+
+    def test_python_keyword_child_table_name(self, tmp_path):
+        """Reachable from data alone -- a nested key becomes a table name."""
+        tbl = Table([{"who": "a", "class": [{"grade": 1}]}], table_name="school")
+        namespace = self._run(tmp_path, tbl)
+        assert namespace["_class"].name == "class"
+
+    def test_name_illegal_in_python_but_legal_in_sql(self, tmp_path):
+        """``$`` and ``#`` are identifier characters in Oracle and SQL
+        Server, so ``clean_key_name`` keeps them; Python rejects both."""
+        tbl = Table([{"amount": 1}], table_name="price$usd")
+        assert "Table('price$usd'" in tbl.sqlalchemy()
+        namespace = self._run(tmp_path, tbl)
+        assert namespace["price_usd"].name == "price$usd"
+
+    def test_insert_function_name_for_a_name_illegal_in_python(self, tmp_path):
+        """The ``insert_*`` function names are built from the table name too,
+        so ``def insert_price$usd(tbl, conn):`` was a SyntaxError even once
+        the Table variable had been fixed."""
+        tbl = Table([{"amount": 1}], table_name="price$usd")
+        module = tmp_path / "generated.py"
+        module.write_text("{}\n{}\n{}\n".format(
+            sqla_head, tbl.sqlalchemy(),
+            "\n".join(tbl.inserts(dialect="sqlalchemy"))))
+        namespace = runpy.run_path(str(module))
+        namespace["insert_price_usd"](namespace["price_usd"], namespace["conn"])
+        namespace["conn"].commit()
+        assert namespace["conn"].execute(
+            sa.select(sa.func.count()).select_from(namespace["price_usd"])).scalar() == 1
+
+    def test_insert_function_names_keep_their_prefix(self):
+        """``insert_class`` needs no escaping -- the prefix already rules out
+        the keyword and shadowing problems the bare variable has."""
+        tbl = Table([{"grade": 1}], table_name="class")
+        assert "def insert_class(tbl, conn):" in "\n".join(
+            tbl.inserts(dialect="sqlalchemy"))
+
+    def test_name_shadowing_the_header(self, tmp_path):
+        """``metadata = Table('metadata', metadata, ...)`` rebinds the
+        MetaData object, so the ``metadata.create_all(engine)`` that follows
+        dies with AttributeError."""
+        tbl = Table([{"name": "a"}], table_name="metadata")
+        namespace = self._run(tmp_path, tbl)
+        assert namespace["_metadata"].name == "metadata"
+        assert isinstance(namespace["metadata"], sa.MetaData)
+
+    def test_name_shadowing_the_connection(self, tmp_path):
+        tbl = Table([{"name": "a"}], table_name="conn")
+        module = tmp_path / "generated.py"
+        module.write_text("{}\n{}\n{}\n".format(
+            sqla_head, tbl.sqlalchemy(),
+            "\n".join(tbl.inserts(dialect="sqlalchemy"))))
+        namespace = runpy.run_path(str(module))
+        namespace["insert_conn"](namespace["_conn"], namespace["conn"])
+        namespace["conn"].commit()
+        rows = list(namespace["conn"].execute(sa.select(namespace["_conn"])))
+        assert [tuple(r) for r in rows] == [("a",)]
+
+    def test_ordinary_name_is_left_alone(self):
+        tbl = Table([{"name": "a"}], table_name="knights")
+        assert "\nknights = Table('knights'" in tbl.sqlalchemy()
+
+    @pytest.mark.parametrize("name", ["match", "case", "type", "knights"])
+    def test_soft_keyword_is_not_prefixed(self, name):
+        """Soft keywords are legal variable names; prefixing them would be
+        gratuitous. (``clean_key_name`` may rename such a table anyway, for
+        SQL's sake -- MATCH is a SQL reserved word -- but that is a separate
+        decision from what is legal in Python.)"""
+        from ddlgenerator.ddlgenerator import _python_variable_name
+
+        assert _python_variable_name(name) == name
+
+
+# ---------------------------------------------------------------------------
 # SQLAlchemy INSERT output
 # ---------------------------------------------------------------------------
 class TestSQLAlchemyInserts:
