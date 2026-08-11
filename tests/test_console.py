@@ -294,6 +294,34 @@ class TestSamplePctValidation:
         assert "CREATE TABLE" in out.getvalue()
 
 
+class TestNoCreatesDropsWarning:
+    def test_sqlalchemy_no_creates_with_drops_warns(self, tmp_path, caplog):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}]')
+        out = io.StringIO()
+        with caplog.at_level(logging.WARNING):
+            generate(f"--no-creates -d sqlalchemy {data_file}", file=out)
+        assert "--drops has no effect" in caplog.text
+
+    def test_sql_dialect_no_creates_with_drops_does_not_warn(self, tmp_path, caplog):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}]')
+        out = io.StringIO()
+        with caplog.at_level(logging.WARNING):
+            generate(f"--no-creates -d postgresql {data_file}", file=out)
+        assert "--drops has no effect" not in caplog.text
+        assert "DROP TABLE" in out.getvalue()
+
+    def test_sqlalchemy_drops_without_no_creates_does_not_warn(self, tmp_path, caplog):
+        data_file = tmp_path / "data.json"
+        data_file.write_text('[{"id": 1}]')
+        out = io.StringIO()
+        with caplog.at_level(logging.WARNING):
+            generate(f"-d sqlalchemy {data_file}", file=out)
+        assert "--drops has no effect" not in caplog.text
+        assert "metadata.drop_all(engine)" in out.getvalue()
+
+
 class TestCountOnly:
     def test_count_only_prints_total_and_skips_ddl(self, tmp_path):
         data_file = tmp_path / "data.json"
