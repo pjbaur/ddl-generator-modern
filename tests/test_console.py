@@ -14,7 +14,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 import sqlalchemy as sa
 
-from ddlgenerator.console import generate, generate_one, parser, set_logging
+from ddlgenerator.console import (
+    generate,
+    generate_one,
+    is_sqlalchemy_url,
+    parser,
+    set_logging,
+)
 
 
 def here(filename):
@@ -400,6 +406,59 @@ class TestSamplePctGeneration:
         out = io.StringIO()
         generate(f"--sample-pct 10 --seed 42 -i postgresql sqlite:///{db_path}", file=out)
         assert 0 < out.getvalue().count("INSERT INTO") < 200
+
+
+# ---------------------------------------------------------------------------
+# Telling a database URL from a file path
+# ---------------------------------------------------------------------------
+class TestIsSqlAlchemyUrl:
+    """``^drizzle|firebird|mssql|...`` anchors only its first alternative --
+    every other branch was unanchored, and it was applied with ``search``.
+    Any path *containing* a dialect name was taken for a database URL and
+    handed to ``create_engine``."""
+
+    @pytest.mark.parametrize("path", [
+        "./sqlite_backups/data.json",
+        "my_django_export.csv",
+        "/tmp/test_sqlalchemy_thing/dup.json",
+        "reports/oracle/2024.yaml",
+        "mysql_dump.json",          # dialect name at the very start
+        "postgresql.json",
+    ])
+    def test_file_paths_are_not_urls(self, path):
+        assert not is_sqlalchemy_url.search(path)
+
+    @pytest.mark.parametrize("url", [
+        "postgresql://user:pass@localhost/db",
+        "sqlite:///:memory:",
+        "sqlite:////var/db/app.db",
+        "mysql+pymysql://localhost/db",
+        "mssql+pyodbc://localhost/db",
+        "oracle://localhost/db",
+    ])
+    def test_database_urls_are_urls(self, url):
+        assert is_sqlalchemy_url.search(url)
+
+    def test_generating_from_a_path_containing_a_dialect_name(self, tmp_path):
+        """The whole point: such a path died with
+
+            ArgumentError: Could not parse SQLAlchemy URL from given URL string
+        """
+        data_file = tmp_path / "sqlite_backups" / "animals.json"
+        data_file.parent.mkdir()
+        data_file.write_text('[{"name": "Arthur"}]')
+        out = io.StringIO()
+        generate(f"postgresql {data_file}", file=out)
+        assert "CREATE TABLE animals (" in out.getvalue()
+
+    def test_counting_a_path_containing_a_dialect_name(self, tmp_path):
+        """--count-only takes the same branch."""
+        data_file = tmp_path / "django_exports" / "animals.json"
+        data_file.parent.mkdir()
+        data_file.write_text('[{"name": "Arthur"}, {"name": "Bella"}]')
+        out = io.StringIO()
+        generate(f"--count-only postgresql {data_file}", file=out)
+        assert "TOTAL: 2" in out.getvalue()
 
 
 # ---------------------------------------------------------------------------

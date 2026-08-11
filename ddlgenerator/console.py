@@ -61,7 +61,11 @@ def set_logging(args: argparse.Namespace) -> None:
     logging.getLogger().setLevel(loglevel)
 
 
-is_sqlalchemy_url = re.compile("^{}".format("|".join(dialect_names)))
+# A database URL is ``dialect://...`` or ``dialect+driver://...``.  Both the
+# grouping and the ``://`` matter: ``^a|b|c`` anchors only its first
+# alternative, and without the scheme separator any *path* holding a dialect
+# name -- ``./sqlite_backups/data.json`` -- was handed to create_engine.
+is_sqlalchemy_url = re.compile(r"^(?:{})(?:\+\w+)?://".format("|".join(dialect_names)))
 
 
 def generate_one(tbl: Any, args: argparse.Namespace,
