@@ -196,4 +196,4 @@ def generate(args: str | list[str] | None = None,
     if parsed.inserts and parsed.dialect == 'sqlalchemy':
         print(sqla_inserter_call(table_names_for_insert), file=file)
         for seq_update in sqla_sequence_updates:
-            print(f'    conn.execute("{seq_update}")', file=file)
+            print(f'    conn.execute(text("{seq_update}"))', file=file)

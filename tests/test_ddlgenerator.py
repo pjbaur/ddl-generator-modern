@@ -179,6 +179,36 @@ class TestSequenceUpdates:
         updates = list(emit_db_sequence_updates(None))
         assert len(updates) == 0
 
+    def test_emit_db_sequence_updates_runs_on_a_real_connection(self, tmp_path):
+        """The tests above pass a MagicMock connection, which accepts any
+        argument at all -- so they hid a real API break: SQLAlchemy 2.x
+        rejects a plain string passed to ``Connection.execute``, and every
+        PostgreSQL source run with ``-i`` died with ObjectNotExecutableError.
+
+        Stand the catalog tables the query reads up in SQLite so a real
+        Connection can be used without a live PostgreSQL server.
+        """
+        import sqlalchemy as sa
+
+        engine = sa.create_engine(f"sqlite:///{tmp_path / 'fake_pg.db'}")
+        with engine.begin() as setup:
+            setup.execute(sa.text("CREATE TABLE pg_namespace (oid INTEGER, nspname TEXT)"))
+            setup.execute(sa.text(
+                "CREATE TABLE pg_class (relnamespace INTEGER, relname TEXT, relkind TEXT)"))
+            setup.execute(sa.text("CREATE TABLE widget_id_seq (last_value INTEGER)"))
+            setup.execute(sa.text("INSERT INTO pg_namespace VALUES (1, 'main')"))
+            setup.execute(sa.text("INSERT INTO pg_class VALUES (1, 'widget_id_seq', 'S')"))
+            setup.execute(sa.text("INSERT INTO widget_id_seq VALUES (41)"))
+
+        class PostgresNamedEngine:
+            name = 'postgresql'
+
+            def connect(self):
+                return engine.connect()
+
+        updates = list(emit_db_sequence_updates(PostgresNamedEngine()))
+        assert updates == ['ALTER SEQUENCE main.widget_id_seq RESTART WITH 42;']
+
 
 # ---------------------------------------------------------------------------
 # File-based tests

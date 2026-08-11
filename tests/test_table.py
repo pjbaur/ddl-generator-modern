@@ -299,6 +299,29 @@ class TestSQLAlchemyInserts:
         # the parent's rows must be insertable before the child's reference them
         assert output.index("def insert_birds(") < output.index("def insert_state(")
 
+    def test_sqla_head_binds_text(self):
+        """The emitted sequence updates call ``text``, so the header that
+        precedes them has to import it."""
+        namespace = {}
+        exec(compile(sqla_head, "sqla_head", "exec"), namespace)
+        assert callable(namespace["text"])
+
+    def test_emitted_sequence_update_is_wrapped_in_text(self, monkeypatch):
+        """The ``ALTER SEQUENCE`` lines are code the user runs, so they face
+        the same SQLAlchemy 2.x rule as the tool's own queries: a plain
+        string passed to ``Connection.execute`` raises
+        ObjectNotExecutableError."""
+        from types import SimpleNamespace
+
+        import ddlgenerator.ddlgenerator as ddl
+
+        monkeypatch.setattr(ddl, "emit_db_sequence_updates",
+                            lambda engine: iter(["ALTER SEQUENCE s RESTART WITH 42;"]))
+        tbl = Table([{"id": 1}], table_name="widget")
+        tbl.source = SimpleNamespace(db_engine=object())
+        output = "\n".join(tbl.inserts(dialect="sqlalchemy"))
+        assert 'conn.execute(text("ALTER SEQUENCE s RESTART WITH 42;"))' in output
+
     def test_insertable_table_names_match_the_functions_emitted(self):
         """The names feed ``sqla_inserter_call``; a name with no matching
         ``insert_*`` function makes the generated module raise NameError."""
