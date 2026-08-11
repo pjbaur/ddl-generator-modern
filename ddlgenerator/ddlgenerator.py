@@ -344,6 +344,7 @@ class Table:
         sample_k: int | None = None,
         seed: int | None = None,
         sample_pct: float | None = None,
+        _used_table_names: set[str] | None = None,
     ) -> None:
         """
         Initialize a Table and load its data.
@@ -391,6 +392,8 @@ class Table:
                 and hasattr(self.data, 'table_name')):
             self.table_name = self.data.table_name
         self.table_name = self.table_name.lower()
+        self._used_table_names = _used_table_names
+        self._claim_table_name()
 
         if hasattr(self.data, 'generator') and hasattr(self.data.generator, 'sqla_columns'):
             children: dict[str, Any] = {}
@@ -455,7 +458,8 @@ class Table:
                                            _parent_table=self, reorder=reorder,
                                            _fk_field_name=child_fk_names[child_name],
                                            metadata_source=child_metadata_sources.get(child_name),
-                                           loglevel=loglevel)
+                                           loglevel=loglevel,
+                                           _used_table_names=_used_table_names)
                          for (child_name, child_data) in children.items()}
 
         if save_metadata_to:
@@ -466,6 +470,27 @@ class Table:
                     _metadata_to_safe(self._saveable_metadata()),
                     default_flow_style=False, sort_keys=False, allow_unicode=True))
             logger.info(f'Pass ``--save-metadata-to {save_metadata_to}`` next time to re-use structure')
+
+    def _claim_table_name(self) -> None:
+        """Take ``self.table_name`` out of the caller's pool of names.
+
+        Table names come from file basenames and from nested keys, so two
+        sources in one run can land on the same one.  Each source builds its
+        own ``MetaData``, so nothing inside a single Table can see the
+        clash -- only the caller emitting them all into one script can, and
+        it says so by passing a pool.  Without one (a Table built on its own,
+        from Python) nothing is renamed.
+        """
+        if self._used_table_names is None:
+            return
+        if self.table_name in self._used_table_names:
+            suffix = 1
+            while f'{self.table_name}_{suffix}' in self._used_table_names:
+                suffix += 1
+            logger.warning(f"table name '{self.table_name}' already used; "
+                           f"renaming this one to '{self.table_name}_{suffix}'")
+            self.table_name = f'{self.table_name}_{suffix}'
+        self._used_table_names.add(self.table_name)
 
     def _saveable_metadata(self) -> OrderedDict:
         result = copy.copy(self.columns)

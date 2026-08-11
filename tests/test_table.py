@@ -437,6 +437,32 @@ class TestSQLAlchemyInserts:
         output = "\n".join(tbl.inserts(dialect="sqlalchemy"))
         assert 'conn.execute(text("ALTER SEQUENCE s RESTART WITH 42;"))' in output
 
+    def test_table_name_is_uniquified_against_a_shared_pool(self):
+        """Each source builds its own MetaData, so nothing inside a single
+        Table sees the clash -- the pool has to be handed in by the caller
+        that emits them all into one script."""
+        used = set()
+        first = Table([{"name": "a"}], table_name="dup", _used_table_names=used)
+        second = Table([{"name": "b"}], table_name="dup", _used_table_names=used)
+        assert (first.table_name, second.table_name) == ("dup", "dup_1")
+
+    def test_uniquifying_skips_names_already_taken(self):
+        used = {"dup", "dup_1"}
+        tbl = Table([{"name": "a"}], table_name="dup", _used_table_names=used)
+        assert tbl.table_name == "dup_2"
+
+    def test_child_table_names_join_the_pool(self):
+        used = set()
+        Table([{"who": "a", "state": [{"abbrev": "OH"}]}], table_name="owner",
+              _used_table_names=used)
+        assert {"owner", "state"} <= used
+
+    def test_no_pool_means_no_renaming(self):
+        """The default keeps Table usable on its own, outside a CLI run."""
+        first = Table([{"name": "a"}], table_name="dup")
+        second = Table([{"name": "b"}], table_name="dup")
+        assert (first.table_name, second.table_name) == ("dup", "dup")
+
     def test_insertable_table_names_match_the_functions_emitted(self):
         """The names feed ``sqla_inserter_call``; a name with no matching
         ``insert_*`` function makes the generated module raise NameError."""

@@ -65,15 +65,20 @@ is_sqlalchemy_url = re.compile("^{}".format("|".join(dialect_names)))
 
 
 def generate_one(tbl: Any, args: argparse.Namespace,
-                 table_name: str | None = None, file: IO[str] | None = None) -> Table:
+                 table_name: str | None = None, file: IO[str] | None = None,
+                 used_table_names: set[str] | None = None) -> Table:
     """
     Prints code (SQL, SQLAlchemy, etc.) to define a table.
+
+    ``used_table_names`` is the pool of names already emitted this run; pass
+    one so that two sources landing on the same name do not collide.
     """
     table = Table(tbl, table_name=table_name, varying_length_text=args.text, uniques=args.uniques,
                   pk_name=args.key, force_pk=args.force_key, reorder=args.reorder, data_size_cushion=args.cushion,
                   save_metadata_to=args.save_metadata_to, metadata_source=args.use_metadata_from,
                   loglevel=args.log, limit=args.limit, every_nth=args.every_nth,
-                  sample_k=args.sample_k, seed=args.seed, sample_pct=args.sample_pct)
+                  sample_k=args.sample_k, seed=args.seed, sample_pct=args.sample_pct,
+                  _used_table_names=used_table_names)
     if args.dialect.startswith('sqla'):
         if not args.no_creates:
             print(table.sqlalchemy(), file=file)
@@ -170,6 +175,9 @@ def generate(args: str | list[str] | None = None,
     # it has been written out.
     table_names_for_insert: list[str] = []
     sqla_sequence_updates: list[str] = []
+    # Every table emitted this run shares one namespace -- one script, or one
+    # target database -- so they are named out of a single pool.
+    used_table_names: set[str] = set()
     for datafile in parsed.datafile:
         if is_sqlalchemy_url.search(datafile):
             t = None
@@ -178,9 +186,12 @@ def generate(args: str | list[str] | None = None,
                                                 sample_k=parsed.sample_k,
                                                 seed=parsed.seed,
                                                 sample_pct=parsed.sample_pct):
-                t = generate_one(tbl, parsed, table_name=tbl.generator.name, file=file)
+                t = generate_one(tbl, parsed, table_name=tbl.generator.name, file=file,
+                                 used_table_names=used_table_names)
                 if t.data:
-                    table_names_for_insert.append(tbl.generator.name)
+                    # the name the model defines, which is not always the name
+                    # the source gave: it is cleaned, and may be uniquified
+                    table_names_for_insert.append(t.table_name)
             if t is not None and parsed.inserts:
                 for seq_update in emit_db_sequence_updates(t.source.db_engine):
                     if parsed.dialect == 'sqlalchemy':
@@ -188,7 +199,8 @@ def generate(args: str | list[str] | None = None,
                     elif parsed.dialect == 'postgresql':
                         print(seq_update, file=file)
         else:
-            t = generate_one(datafile, parsed, file=file)
+            t = generate_one(datafile, parsed, file=file,
+                             used_table_names=used_table_names)
             if parsed.inserts and parsed.dialect == 'sqlalchemy':
                 # nested data splits into child tables, which get their own
                 # ``insert_*`` functions and so must be called as well
