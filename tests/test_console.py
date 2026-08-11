@@ -626,6 +626,60 @@ class TestSqlAlchemyInserterCall:
 
 
 # ---------------------------------------------------------------------------
+# --drops in the SQLAlchemy dialect
+# ---------------------------------------------------------------------------
+class TestSqlAlchemyDrops:
+    """``-d`` was parsed, accepted, and then never consulted for this
+    dialect -- the flag did nothing and said nothing."""
+
+    def test_drops_emits_drop_all(self, tmp_path):
+        data_file = tmp_path / "knights.json"
+        data_file.write_text('[{"name": "Lancelot"}]')
+        out = io.StringIO()
+        generate(f"-d sqlalchemy {data_file}", file=out)
+        output = out.getvalue()
+        assert output.index("metadata.drop_all(engine)") < output.index(
+            "metadata.create_all(engine)")
+
+    def test_no_drops_without_the_flag(self, tmp_path):
+        data_file = tmp_path / "knights.json"
+        data_file.write_text('[{"name": "Lancelot"}]')
+        out = io.StringIO()
+        generate(f"sqlalchemy {data_file}", file=out)
+        assert "drop_all" not in out.getvalue()
+
+    def _module_against_a_real_file(self, tmp_path, flags, db_path):
+        """Generate, then repoint the module at a file-backed database so a
+        second run sees what the first one left behind."""
+        out = io.StringIO()
+        generate(f"{flags} sqlalchemy {here('knights.yaml')}", file=out)
+        module = tmp_path / f"generated{flags.count('-d')}.py"
+        module.write_text(out.getvalue().replace(
+            "sqlite:///:memory:", f"sqlite:///{db_path}"))
+        return module
+
+    def _run_and_count(self, module):
+        namespace = runpy.run_path(str(module))
+        namespace["insert_test_rows"](namespace["metadata"], namespace["conn"])
+        return namespace["conn"].execute(
+            sa.select(sa.func.count()).select_from(namespace["knights"])).scalar()
+
+    def test_drops_makes_a_rerun_idempotent(self, tmp_path):
+        module = self._module_against_a_real_file(
+            tmp_path, "-i -d", tmp_path / "with_drops.db")
+        assert self._run_and_count(module) == 4
+        assert self._run_and_count(module) == 4
+
+    def test_without_drops_a_rerun_accumulates(self, tmp_path):
+        """Pins what the flag is worth: the same module without ``-d``
+        doubles the rows."""
+        module = self._module_against_a_real_file(
+            tmp_path, "-i", tmp_path / "no_drops.db")
+        assert self._run_and_count(module) == 4
+        assert self._run_and_count(module) == 8
+
+
+# ---------------------------------------------------------------------------
 # Duplicate table names across sources
 # ---------------------------------------------------------------------------
 class TestDuplicateTableNames:

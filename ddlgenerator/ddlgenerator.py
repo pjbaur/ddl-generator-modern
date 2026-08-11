@@ -545,10 +545,16 @@ class Table:
 
         %s
 
-        metadata.create_all(engine)""")
+        %s""")
 
-    def sqlalchemy(self, is_top: bool = True) -> str:
-        """Dumps Python code to set up the table's  SQLAlchemy model"""
+    def sqlalchemy(self, is_top: bool = True, drops: bool = False) -> str:
+        """Dumps Python code to set up the table's  SQLAlchemy model
+
+        With ``drops``, the model clears the tables it defines before
+        creating them.  ``drop_all`` defaults to ``checkfirst=True``, so it
+        is the analogue of the ``DROP TABLE IF EXISTS`` the SQL dialects
+        emit for the same flag.
+        """
         table_def = self.table_backref_remover.sub('', self.table.__repr__())
 
         # inject UNIQUE constraints into table definition
@@ -581,8 +587,11 @@ class Table:
             # used only by a child was otherwise left out of the import line
             found_imports = set(self.capitalized_words.findall(result))
             found_imports &= set(dir(sa))
+            setup = 'metadata.create_all(engine)'
+            if drops:
+                setup = f'metadata.drop_all(engine)\n{setup}'
             result = self.sqlalchemy_setup_template % (
-                ", ".join(sorted(found_imports)), result)
+                ", ".join(sorted(found_imports)), result, setup)
             result = textwrap.dedent(result)
         return result
 

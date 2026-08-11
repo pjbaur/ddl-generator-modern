@@ -193,6 +193,19 @@ class TestSQLAlchemyModel:
         assert "metadata = MetaData()" in output or "metadata" in output
         assert "MetaData(bind=" not in output
 
+    def test_sqlalchemy_drops(self):
+        """``-d`` was accepted and then dropped on the floor for this
+        dialect. ``drop_all`` defaults to ``checkfirst=True``, making it the
+        analogue of the ``DROP TABLE IF EXISTS`` the SQL dialects emit."""
+        tbl = Table([{"id": 1}], table_name="test_sqla_drops")
+        output = tbl.sqlalchemy(drops=True)
+        assert output.index("metadata.drop_all(engine)") < output.index(
+            "metadata.create_all(engine)")
+
+    def test_sqlalchemy_no_drops_by_default(self):
+        tbl = Table([{"id": 1}], table_name="test_sqla_nodrops")
+        assert "drop_all" not in tbl.sqlalchemy()
+
     def test_sqlalchemy_sa2x_create_all(self):
         """SQLAlchemy 2.x style: metadata.create_all(engine) not .create()"""
         data = [{"id": 1, "name": "test"}]
