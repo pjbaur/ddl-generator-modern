@@ -680,7 +680,7 @@ class Table:
                 # only a Source reading from a live database has an engine
                 for seq_updater in emit_db_sequence_updates(
                         getattr(self.source, 'db_engine', None)):
-                    yield f'    conn.execute("{seq_updater}")'
+                    yield f'    conn.execute(text("{seq_updater}"))'
             else:
                 yield f"\n# No data for {self.table.name}"
             # nested data splits into child tables, which the generated model
@@ -797,7 +797,7 @@ sqla_head = """
 import datetime
 from decimal import Decimal
 # check for other imports you may need, like your db driver
-from sqlalchemy import create_engine, MetaData, ForeignKey
+from sqlalchemy import create_engine, MetaData, ForeignKey, text
 engine = create_engine(r'sqlite:///:memory:')
 metadata = MetaData()
 conn = engine.connect()"""
@@ -836,14 +836,16 @@ def emit_db_sequence_updates(engine: Any) -> Iterator[str]:
     if engine and engine.name == 'postgresql':
         # not implemented for other RDBMS; necessity unknown
         conn = engine.connect()
-        seq_query = """SELECT 'SELECT last_value FROM ' || n.nspname ||
+        # SQLAlchemy 2.x refuses a plain string here -- statements must be
+        # wrapped in ``text()`` or they raise ObjectNotExecutableError
+        seq_query = sa.text("""SELECT 'SELECT last_value FROM ' || n.nspname ||
                          '.' || c.relname || ';' AS qry,
                         n.nspname || '.' || c.relname AS qual_name
                  FROM   pg_namespace n
                  JOIN   pg_class c ON (n.oid = c.relnamespace)
-                 WHERE  c.relkind = 'S'"""
+                 WHERE  c.relkind = 'S'""")
         for (qry, qual_name) in list(conn.execute(seq_query)):
-            (lastval, ) = conn.execute(qry).first()
+            (lastval, ) = conn.execute(sa.text(qry)).first()
             nextval = int(lastval) + 1
             yield f"ALTER SEQUENCE {qual_name} RESTART WITH {nextval};"
 

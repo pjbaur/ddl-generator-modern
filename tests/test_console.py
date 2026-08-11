@@ -463,6 +463,23 @@ class TestSqlAlchemyUrlInput:
             # Should complete without error
             assert True
 
+    @patch('ddlgenerator.console.emit_db_sequence_updates')
+    @patch('ddlgenerator.console.sqlalchemy_table_sources')
+    def test_sequence_updates_are_wrapped_in_text(self, mock_sources, mock_seq):
+        """Emitted as a plain string, the statement raises
+        ObjectNotExecutableError when the user runs the generated module."""
+        mock_source = MagicMock()
+        mock_source.generator.name = "users"
+        mock_sources.return_value = [mock_source]
+        mock_seq.return_value = iter(["ALTER SEQUENCE users_id_seq RESTART WITH 42;"])
+
+        with patch('ddlgenerator.console.generate_one'):
+            out = io.StringIO()
+            generate("-i sqlalchemy postgresql://localhost/db", file=out)
+
+        assert ('conn.execute(text("ALTER SEQUENCE users_id_seq RESTART WITH 42;"))'
+                in out.getvalue())
+
 
 # ---------------------------------------------------------------------------
 # SQLAlchemy inserter call
