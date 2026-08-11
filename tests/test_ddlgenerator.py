@@ -134,6 +134,22 @@ class TestFromRawPythonData:
 # ---------------------------------------------------------------------------
 # Sequence update tests
 # ---------------------------------------------------------------------------
+class TestZeroColumnSource:
+    """A source yielding no columns must fail clearly, not emit invalid DDL."""
+
+    def test_empty_list_raises(self):
+        with pytest.raises(ValueError, match="no columns"):
+            Table([], table_name='t0')
+
+    def test_all_empty_rows_raise(self):
+        with pytest.raises(ValueError, match="no columns"):
+            Table([{}, {}], table_name='t1')
+
+    def test_error_names_the_table(self):
+        with pytest.raises(ValueError, match="t2"):
+            Table([], table_name='t2')
+
+
 class TestSequenceUpdates:
     """Tests for emit_db_sequence_updates - P0-3 fixes"""
 

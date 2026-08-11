@@ -12,7 +12,8 @@ The ``-i`` flag generates INSERT statements as well::
 
 or from Python::
 
-    >>> menu = Table('../tests/menu.json')
+    >>> menu = Table([{'course': 'entree', 'name': 'sole'},
+    ...               {'course': 'dessert', 'name': 'flan'}])
     >>> ddl = menu.ddl('postgresql')
     >>> inserts = menu.inserts('postgresql')
     >>> all_sql = menu.sql('postgresql', inserts=True)
@@ -433,6 +434,15 @@ class Table:
             for (c, v) in sorted(self.columns.items()):
                 ordered_columns[c] = v
             self.columns = ordered_columns
+
+        if not self.columns:
+            # Without this, an empty source quietly becomes ``CREATE TABLE x
+            # ();`` -- legal in PostgreSQL but rejected by MySQL, SQLite, and
+            # most other targets, and never what the user meant either way.
+            raise ValueError(
+                f"no columns found for table {self.table_name!r}: "
+                "the source is empty or its rows have no fields"
+            )
 
         if _parent_table:
             fk = sa.ForeignKey(f'{_parent_table.table_name}.{_parent_table.pk_name}')

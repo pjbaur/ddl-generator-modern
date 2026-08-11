@@ -526,7 +526,12 @@ class Source:
                 self.generator = deserializer(open_file, fieldnames=self.fieldnames)
                 row_1 = next(self.generator)
                 open_file.seek(0)
-                if row_1:
+                # An empty dict is still a successful parse: the format was
+                # right, the row just has no fields.  Falling through to the
+                # next deserializer would end in a misleading "could not
+                # deserialize"; accept it and let Table report the real
+                # problem (no columns).
+                if row_1 or isinstance(row_1, dict):
                     if deserializer == _ordered_yaml_load and isinstance(row_1, str) and len(row_1) == 1:
                         logging.info('false hit: reading yaml as a single string')
                         continue
