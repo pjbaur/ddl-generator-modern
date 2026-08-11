@@ -741,6 +741,74 @@ class TestSqlAlchemyDrops:
 
 
 # ---------------------------------------------------------------------------
+# One model wrapper per run, not per datafile
+# ---------------------------------------------------------------------------
+class TestSqlAlchemyMultipleDatafiles:
+    """Each datafile got its own ``from sqlalchemy import ...`` line and its
+    own ``metadata.create_all(engine)``.  Harmless to execute, but the model
+    should read as one script: a single import line covering every table's
+    types and a single create_all after all the definitions."""
+
+    def _two_files(self, tmp_path):
+        first = tmp_path / "aardvarks.json"
+        first.write_text('[{"legs": 4}]')
+        second = tmp_path / "beetles.json"
+        second.write_text('[{"name": "Bella"}]')
+        return first, second
+
+    def test_one_create_all_for_the_whole_run(self, tmp_path):
+        first, second = self._two_files(tmp_path)
+        out = io.StringIO()
+        generate(f"sqlalchemy {first} {second}", file=out)
+        assert out.getvalue().count("metadata.create_all(engine)") == 1
+
+    def test_one_import_line_covering_every_tables_types(self, tmp_path):
+        # aardvarks needs Integer, beetles needs Unicode; the single import
+        # line must carry both
+        first, second = self._two_files(tmp_path)
+        out = io.StringIO()
+        generate(f"sqlalchemy {first} {second}", file=out)
+        model_imports = [line for line in out.getvalue().splitlines()
+                         if line.startswith("from sqlalchemy import ")
+                         and "create_engine" not in line]  # skip the header's
+        assert len(model_imports) == 1
+        assert "Integer" in model_imports[0]
+        assert "Unicode" in model_imports[0]
+
+    def test_create_all_follows_every_table_definition(self, tmp_path):
+        first, second = self._two_files(tmp_path)
+        out = io.StringIO()
+        generate(f"sqlalchemy {first} {second}", file=out)
+        output = out.getvalue()
+        assert output.index("metadata.create_all(engine)") > max(
+            output.index("aardvarks = Table("), output.index("beetles = Table("))
+
+    def test_drops_emits_one_drop_all_before_the_create_all(self, tmp_path):
+        first, second = self._two_files(tmp_path)
+        out = io.StringIO()
+        generate(f"-d sqlalchemy {first} {second}", file=out)
+        output = out.getvalue()
+        assert output.count("metadata.drop_all(engine)") == 1
+        assert output.index("metadata.drop_all(engine)") < output.index(
+            "metadata.create_all(engine)")
+
+    def test_generated_module_still_populates_every_file(self, tmp_path):
+        first, second = self._two_files(tmp_path)
+        out = io.StringIO()
+        generate(f"-i sqlalchemy {first} {second}", file=out)
+        module = tmp_path / "generated.py"
+        module.write_text(out.getvalue())
+
+        namespace = runpy.run_path(str(module))
+        namespace["insert_test_rows"](namespace["metadata"], namespace["conn"])
+
+        conn = namespace["conn"]
+        for table in ("aardvarks", "beetles"):
+            assert conn.execute(sa.select(sa.func.count())
+                                .select_from(namespace[table])).scalar() == 1
+
+
+# ---------------------------------------------------------------------------
 # Duplicate table names across sources
 # ---------------------------------------------------------------------------
 class TestDuplicateTableNames:
