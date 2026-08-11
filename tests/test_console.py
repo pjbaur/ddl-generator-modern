@@ -473,7 +473,9 @@ class TestSqlAlchemyUrlInput:
         mock_sources.return_value = [mock_source]
         mock_seq.return_value = iter(["ALTER SEQUENCE users_id_seq RESTART WITH 42;"])
 
-        with patch('ddlgenerator.console.generate_one'):
+        with patch('ddlgenerator.console.generate_one') as mock_generate_one:
+            # the inserter call is built from the name the model defines
+            mock_generate_one.return_value.table_name = "users"
             out = io.StringIO()
             generate("-i sqlalchemy postgresql://localhost/db", file=out)
 
@@ -562,6 +564,88 @@ class TestSqlAlchemyInserterCall:
         state = namespace["state"]
         assert conn.execute(sa.select(sa.func.count()).select_from(birds)).scalar() == 2
         assert conn.execute(sa.select(sa.func.count()).select_from(state)).scalar() == 8
+
+
+# ---------------------------------------------------------------------------
+# Duplicate table names across sources
+# ---------------------------------------------------------------------------
+class TestDuplicateTableNames:
+    """Table names come from file basenames and nested keys, so two sources
+    in one run can land on the same one. Every dialect emitted both, and
+    every dialect broke on it: two ``CREATE TABLE dup`` statements, or a
+    SQLAlchemy model that raises
+
+        InvalidRequestError: Table 'dup' is already defined for this
+        MetaData instance.
+    """
+
+    def _two_sources_named_dup(self, tmp_path):
+        first = tmp_path / "d1" / "dup.json"
+        second = tmp_path / "d2" / "dup.json"
+        for path, name in ((first, "Alice"), (second, "Bob")):
+            path.parent.mkdir()
+            path.write_text(f'[{{"name": "{name}"}}]')
+        return first, second
+
+    def test_second_source_is_renamed(self, tmp_path):
+        first, second = self._two_sources_named_dup(tmp_path)
+        out = io.StringIO()
+        generate(f"postgresql {first} {second}", file=out)
+        output = out.getvalue()
+        assert "CREATE TABLE dup (" in output
+        assert "CREATE TABLE dup_1 (" in output
+
+    def test_rename_is_warned_about(self, tmp_path, caplog):
+        first, second = self._two_sources_named_dup(tmp_path)
+        out = io.StringIO()
+        with caplog.at_level(logging.WARNING):
+            generate(f"postgresql {first} {second}", file=out)
+        assert any("dup" in r.message and "dup_1" in r.message
+                   for r in caplog.records)
+
+    def test_child_table_collides_with_another_sources_table(self, tmp_path):
+        """The name pool has to cover child tables too -- they are emitted
+        into the same script as everything else."""
+        owner = tmp_path / "owner.json"
+        owner.write_text('[{"who": "a", "state": [{"abbrev": "OH"}]}]')
+        state = tmp_path / "state.json"
+        state.write_text('[{"abbrev": "MN"}]')
+        out = io.StringIO()
+        generate(f"postgresql {owner} {state}", file=out)
+        output = out.getvalue()
+        assert "CREATE TABLE state (" in output
+        assert "CREATE TABLE state_1 (" in output
+
+    def test_distinct_names_are_left_alone(self, tmp_path):
+        first = tmp_path / "aardvarks.json"
+        first.write_text('[{"name": "Arthur"}]')
+        second = tmp_path / "beetles.json"
+        second.write_text('[{"name": "Bella"}]')
+        out = io.StringIO()
+        generate(f"postgresql {first} {second}", file=out)
+        output = out.getvalue()
+        assert "_1" not in output
+
+    def test_generated_model_module_runs(self, tmp_path):
+        """End to end: both tables must be defined, created and loaded.
+
+        (Named to keep every SQL dialect name out of ``tmp_path``: the
+        ``is_sqlalchemy_url`` pattern anchors only its first alternative and
+        is applied with ``search``, so any path *containing* a dialect name
+        is mistaken for a database URL.)
+        """
+        first, second = self._two_sources_named_dup(tmp_path)
+        out = io.StringIO()
+        generate(f"-i sqlalchemy {first} {second}", file=out)
+        module = tmp_path / "generated.py"
+        module.write_text(out.getvalue())
+
+        namespace = runpy.run_path(str(module))
+        namespace["insert_test_rows"](namespace["metadata"], namespace["conn"])
+
+        conn = namespace["conn"]
+        assert [tuple(r) for r in conn.execute(sa.select(namespace["dup"]))] == [("Alice",)]
+        assert [tuple(r) for r in conn.execute(sa.select(namespace["dup_1"]))] == [("Bob",)]
 
 
 # ---------------------------------------------------------------------------
