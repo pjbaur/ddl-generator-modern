@@ -486,7 +486,14 @@ class TestSQLAlchemyInserts:
         assert [n for n in names if f"def insert_{n}(" in output] == names
 
     def test_insertable_table_names_skips_a_table_without_rows(self):
-        tbl = Table([], table_name="vacant")
+        # Columns must come from metadata: a source with neither rows nor
+        # columns is rejected outright, but a known table whose current
+        # extract is empty is legitimate -- and gets no insert function.
+        metadata = OrderedDict([
+            ("id", {"is_nullable": False, "is_unique": True,
+                    "sample_datum": 1, "str_length": 1}),
+        ])
+        tbl = Table([], table_name="vacant", metadata_source=metadata)
         assert list(tbl.insertable_table_names()) == []
 
     def test_child_inserts_execute_and_keep_the_foreign_key(self, tmp_path):

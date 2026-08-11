@@ -322,6 +322,30 @@ class TestNoCreatesDropsWarning:
         assert "metadata.drop_all(engine)" in out.getvalue()
 
 
+class TestZeroColumnSources:
+    """Empty sources used to emit invalid ``CREATE TABLE x ();`` (or, for
+    JSON, a misleading deserialization error).  All must now raise a clear
+    ValueError instead."""
+
+    def test_empty_csv_raises(self, tmp_path):
+        data_file = tmp_path / "empty.csv"
+        data_file.write_text('')
+        with pytest.raises(ValueError, match="no columns"):
+            generate(f"postgresql {data_file}", file=io.StringIO())
+
+    def test_header_only_csv_raises(self, tmp_path):
+        data_file = tmp_path / "header_only.csv"
+        data_file.write_text('a,b\n')
+        with pytest.raises(ValueError, match="no columns"):
+            generate(f"postgresql {data_file}", file=io.StringIO())
+
+    def test_json_all_empty_rows_raises_clearly(self, tmp_path):
+        data_file = tmp_path / "empty_rows.json"
+        data_file.write_text('[{}]')
+        with pytest.raises(ValueError, match="no columns"):
+            generate(f"postgresql {data_file}", file=io.StringIO())
+
+
 class TestCountOnly:
     def test_count_only_prints_total_and_skips_ddl(self, tmp_path):
         data_file = tmp_path / "data.json"
@@ -599,12 +623,21 @@ class TestSqlAlchemyInserterCall:
         assert parent < child
 
     def test_table_without_rows_is_not_called(self, tmp_path):
-        """``inserts()`` defines no function for an empty source, so calling
-        one would raise NameError."""
+        """``inserts()`` defines no function for a rowless table, so calling
+        one would raise NameError.
+
+        The rowless table needs its columns from saved metadata: a source
+        with neither rows nor columns is rejected outright.
+        """
+        seed_file = tmp_path / "seed.json"
+        seed_file.write_text('[{"name": "Val"}]')
+        meta_file = tmp_path / "meta.yaml"
+        generate(f"--save-metadata-to {meta_file} sqlalchemy {seed_file}",
+                 file=io.StringIO())
         data_file = tmp_path / "vacant.json"
         data_file.write_text("[]")
         out = io.StringIO()
-        generate(f"-i sqlalchemy {data_file}", file=out)
+        generate(f"-i --use-metadata-from {meta_file} sqlalchemy {data_file}", file=out)
         output = out.getvalue()
         assert "def insert_test_rows(meta, conn):" in output
         assert "insert_vacant(" not in output
