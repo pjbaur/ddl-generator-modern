@@ -810,7 +810,7 @@ conn = engine.connect()"""
 # lowercase names can collide: table names are lowercased, and everything
 # else the header imports is capitalized.
 _names_bound_by_sqla_head = frozenset(['conn', 'create_engine', 'datetime',
-                                       'engine', 'metadata'])
+                                       'engine', 'metadata', 'text'])
 
 _illegal_in_python_name = re.compile(r'[^a-zA-Z0-9_]')
 
