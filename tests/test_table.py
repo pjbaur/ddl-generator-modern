@@ -269,6 +269,28 @@ class TestSQLAlchemyVariableNames:
         assert namespace["_metadata"].name == "metadata"
         assert isinstance(namespace["metadata"], sa.MetaData)
 
+    def test_name_shadowing_the_text_helper(self, tmp_path):
+        """``sqla_head`` imports ``text`` for the emitted sequence updates.
+        A table variable of that name shadows it, so the
+        ``conn.execute(text(...))`` lines would call a Table object."""
+        tbl = Table([{"body": "a"}], table_name="text")
+        namespace = self._run(tmp_path, tbl)
+        assert namespace["_text"].name == "text"
+        assert callable(namespace["text"])
+
+    def test_shadow_list_covers_every_name_sqla_head_binds(self):
+        """Drift guard: the two are edited independently -- ``text`` was
+        added to the header by one change and missed by another -- so check
+        the whole header rather than one name at a time."""
+        from ddlgenerator.ddlgenerator import _names_bound_by_sqla_head
+
+        namespace = {}
+        exec(compile(sqla_head, "sqla_head", "exec"), namespace)
+        # only lowercase names can collide; table names are lowercased
+        bound = {name for name in namespace
+                 if not name.startswith("__") and name.islower()}
+        assert bound <= _names_bound_by_sqla_head
+
     def test_name_shadowing_the_connection(self, tmp_path):
         tbl = Table([{"name": "a"}], table_name="conn")
         module = tmp_path / "generated.py"
