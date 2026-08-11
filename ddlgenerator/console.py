@@ -172,6 +172,15 @@ def generate(args: str | list[str] | None = None,
     if parsed.dialect not in dialect_names:
         raise NotImplementedError('First arg must be one of: {}'.format(", ".join(dialect_names)))
     if parsed.dialect == 'sqlalchemy':
+        if parsed.no_creates and parsed.drops:
+            # SQL dialects emit DROP statements independently of CREATEs, but
+            # the sqlalchemy dialect's drops ride on the model code that
+            # --no-creates suppresses, so this combination emits no drops.
+            logging.warning(
+                "-d/--drops has no effect with --no-creates for the sqlalchemy "
+                "dialect: --no-creates suppresses the model code entirely, "
+                "leaving no metadata for drop_all to work from."
+            )
         print(sqla_head, file=file)
     # One ``insert_test_rows`` covers every table from every datafile; a
     # second definition would shadow the first and strand its tables.  The
