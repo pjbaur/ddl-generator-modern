@@ -299,6 +299,19 @@ class TestSQLAlchemyInserts:
         # the parent's rows must be insertable before the child's reference them
         assert output.index("def insert_birds(") < output.index("def insert_state(")
 
+    def test_insertable_table_names_match_the_functions_emitted(self):
+        """The names feed ``sqla_inserter_call``; a name with no matching
+        ``insert_*`` function makes the generated module raise NameError."""
+        tbl = Table(here("birds.yaml"))
+        names = list(tbl.insertable_table_names())
+        assert names == ["birds", "state"]
+        output = "\n".join(tbl.inserts(dialect="sqlalchemy"))
+        assert [n for n in names if f"def insert_{n}(" in output] == names
+
+    def test_insertable_table_names_skips_a_table_without_rows(self):
+        tbl = Table([], table_name="vacant")
+        assert list(tbl.insertable_table_names()) == []
+
     def test_child_inserts_execute_and_keep_the_foreign_key(self, tmp_path):
         tbl = Table(here("birds.yaml"))
         module = tmp_path / "generated.py"

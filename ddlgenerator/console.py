@@ -164,9 +164,14 @@ def generate(args: str | list[str] | None = None,
         raise NotImplementedError('First arg must be one of: {}'.format(", ".join(dialect_names)))
     if parsed.dialect == 'sqlalchemy':
         print(sqla_head, file=file)
+    # One ``insert_test_rows`` covers every table from every datafile; a
+    # second definition would shadow the first and strand its tables.  The
+    # sequence updates trail the function body, so they are held back until
+    # it has been written out.
+    table_names_for_insert: list[str] = []
+    sqla_sequence_updates: list[str] = []
     for datafile in parsed.datafile:
         if is_sqlalchemy_url.search(datafile):
-            table_names_for_insert = []
             t = None
             for tbl in sqlalchemy_table_sources(datafile, limit=parsed.limit,
                                                 every_nth=parsed.every_nth,
@@ -176,13 +181,19 @@ def generate(args: str | list[str] | None = None,
                 t = generate_one(tbl, parsed, table_name=tbl.generator.name, file=file)
                 if t.data:
                     table_names_for_insert.append(tbl.generator.name)
-            if parsed.inserts and parsed.dialect == 'sqlalchemy':
-                print(sqla_inserter_call(table_names_for_insert), file=file)
             if t is not None and parsed.inserts:
                 for seq_update in emit_db_sequence_updates(t.source.db_engine):
                     if parsed.dialect == 'sqlalchemy':
-                        print(f'    conn.execute("{seq_update}")', file=file)
+                        sqla_sequence_updates.append(seq_update)
                     elif parsed.dialect == 'postgresql':
                         print(seq_update, file=file)
         else:
-            generate_one(datafile, parsed, file=file)
+            t = generate_one(datafile, parsed, file=file)
+            if parsed.inserts and parsed.dialect == 'sqlalchemy':
+                # nested data splits into child tables, which get their own
+                # ``insert_*`` functions and so must be called as well
+                table_names_for_insert.extend(t.insertable_table_names())
+    if parsed.inserts and parsed.dialect == 'sqlalchemy':
+        print(sqla_inserter_call(table_names_for_insert), file=file)
+        for seq_update in sqla_sequence_updates:
+            print(f'    conn.execute("{seq_update}")', file=file)

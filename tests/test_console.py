@@ -7,11 +7,18 @@ Covers: CLI argument parsing, dialect aliases, set_logging, generate_one
 
 import io
 import logging
+import os
+import runpy
 from unittest.mock import MagicMock, patch
 
 import pytest
+import sqlalchemy as sa
 
 from ddlgenerator.console import generate, generate_one, parser, set_logging
+
+
+def here(filename):
+    return os.path.join(os.path.dirname(__file__), filename)
 
 
 class TestArgumentParsing:
@@ -455,6 +462,89 @@ class TestSqlAlchemyUrlInput:
             generate("-i postgresql postgresql://localhost/db", file=out)
             # Should complete without error
             assert True
+
+
+# ---------------------------------------------------------------------------
+# SQLAlchemy inserter call
+# ---------------------------------------------------------------------------
+class TestSqlAlchemyInserterCall:
+    """``insert_test_rows`` drives the per-table ``insert_*`` functions.
+
+    Only the SQLAlchemy-URL branch emitted it, so a file source produced
+    ``insert_*`` definitions that nothing ever called -- the generated module
+    created the tables and left them empty.
+    """
+
+    def test_file_source_emits_inserter_call(self, tmp_path):
+        data_file = tmp_path / "knights.json"
+        data_file.write_text('[{"name": "Lancelot"}]')
+        out = io.StringIO()
+        generate(f"-i sqlalchemy {data_file}", file=out)
+        output = out.getvalue()
+        assert "def insert_test_rows(meta, conn):" in output
+        assert "insert_knights(meta.tables['knights'], conn)" in output
+
+    def test_child_tables_are_called_after_their_parent(self):
+        out = io.StringIO()
+        generate(f"-i sqlalchemy {here('birds.yaml')}", file=out)
+        output = out.getvalue()
+        parent = output.index("insert_birds(meta.tables['birds'], conn)")
+        child = output.index("insert_state(meta.tables['state'], conn)")
+        assert parent < child
+
+    def test_table_without_rows_is_not_called(self, tmp_path):
+        """``inserts()`` defines no function for an empty source, so calling
+        one would raise NameError."""
+        data_file = tmp_path / "vacant.json"
+        data_file.write_text("[]")
+        out = io.StringIO()
+        generate(f"-i sqlalchemy {data_file}", file=out)
+        output = out.getvalue()
+        assert "def insert_test_rows(meta, conn):" in output
+        assert "insert_vacant(" not in output
+
+    def test_multiple_datafiles_share_one_inserter(self, tmp_path):
+        """A second definition would shadow the first, stranding its tables."""
+        first = tmp_path / "aardvarks.json"
+        first.write_text('[{"name": "Arthur"}]')
+        second = tmp_path / "beetles.json"
+        second.write_text('[{"name": "Bella"}]')
+        out = io.StringIO()
+        generate(f"-i sqlalchemy {first} {second}", file=out)
+        output = out.getvalue()
+        assert output.count("def insert_test_rows(meta, conn):") == 1
+        assert "insert_aardvarks(meta.tables['aardvarks'], conn)" in output
+        assert "insert_beetles(meta.tables['beetles'], conn)" in output
+
+    def test_no_inserter_call_without_inserts_flag(self, tmp_path):
+        data_file = tmp_path / "knights.json"
+        data_file.write_text('[{"name": "Lancelot"}]')
+        out = io.StringIO()
+        generate(f"sqlalchemy {data_file}", file=out)
+        assert "insert_test_rows" not in out.getvalue()
+
+    def test_no_inserter_call_for_sql_dialects(self, tmp_path):
+        data_file = tmp_path / "knights.json"
+        data_file.write_text('[{"name": "Lancelot"}]')
+        out = io.StringIO()
+        generate(f"-i postgresql {data_file}", file=out)
+        assert "insert_test_rows" not in out.getvalue()
+
+    def test_generated_module_populates_its_tables(self, tmp_path):
+        """End to end: the emitted module must run and load every row."""
+        out = io.StringIO()
+        generate(f"-i sqlalchemy {here('birds.yaml')}", file=out)
+        module = tmp_path / "generated.py"
+        module.write_text(out.getvalue())
+
+        namespace = runpy.run_path(str(module))
+        namespace["insert_test_rows"](namespace["metadata"], namespace["conn"])
+
+        conn = namespace["conn"]
+        birds = namespace["birds"]
+        state = namespace["state"]
+        assert conn.execute(sa.select(sa.func.count()).select_from(birds)).scalar() == 2
+        assert conn.execute(sa.select(sa.func.count()).select_from(state)).scalar() == 8
 
 
 # ---------------------------------------------------------------------------
