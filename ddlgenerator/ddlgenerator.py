@@ -647,6 +647,19 @@ class Table:
 
     _insert_template = "INSERT INTO {table_name} ({cols}) VALUES ({vals});"
 
+    def insertable_table_names(self) -> Iterator[str]:
+        """Names of the tables ``inserts('sqlalchemy')`` defines a function for.
+
+        Parent before children, matching the order the functions are emitted
+        in, so the rows a child references already exist when it is loaded.
+        A table with no rows gets no ``insert_*`` function, so it is skipped
+        here too -- naming it would make the generated module raise NameError.
+        """
+        if self.data:
+            yield self.table_name
+        for child in self.children.values():
+            yield from child.insertable_table_names()
+
     def inserts(self, dialect: str | None = None) -> Iterator[str]:
         if dialect and dialect.startswith("sqla"):
             if self.data:
