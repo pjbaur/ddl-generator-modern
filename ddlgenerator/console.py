@@ -85,7 +85,7 @@ def generate_one(tbl: Any, args: argparse.Namespace,
                   _used_table_names=used_table_names)
     if args.dialect.startswith('sqla'):
         if not args.no_creates:
-            print(table.sqlalchemy(), file=file)
+            print(table.sqlalchemy(drops=args.drops), file=file)
         if args.inserts:
             print("\n".join(table.inserts(dialect=args.dialect)), file=file)
     elif args.dialect.startswith('dj'):
