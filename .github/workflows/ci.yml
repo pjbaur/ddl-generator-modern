@@ -73,3 +73,20 @@ jobs:
         run: pip install -e ".[dev,mongo]"
       - name: Run MongoDB tests
         run: pytest -m mongo --tb=short
+
+  test-postgres:
+    runs-on: ubuntu-latest
+    env:
+      # Escalation switch: any would-be skip (missing Docker, driver, or
+      # testcontainers; container start failure) becomes a hard failure,
+      # so this job can never pass by silently skipping.
+      DDLGEN_PG_INTEGRATION_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -e ".[dev,postgres,integration]"
+      - name: Run PostgreSQL integration tests
+        run: pytest -m postgres --tb=short

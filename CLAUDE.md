@@ -26,10 +26,15 @@ docs/                   # Sphinx documentation
 # mise auto-activates .venv on cd (see .mise.toml); without mise,
 # run `source .venv/bin/activate` first.
 uv venv .venv -p 3.12
-uv pip install -e ".[dev,mongo]"
+uv pip install -e ".[dev,mongo,postgres,integration]"
 
 # Run tests
 pytest
+
+# PostgreSQL integration tests (Docker required; auto-skip without it)
+pytest -m postgres
+# Skip them for a quick loop
+pytest -m "not postgres"
 
 # Run with tox (multiple Python versions)
 tox
