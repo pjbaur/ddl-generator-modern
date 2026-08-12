@@ -254,6 +254,87 @@ class TestSequenceUpdates:
 
 
 # ---------------------------------------------------------------------------
+# Reflected SQLAlchemy sources
+# ---------------------------------------------------------------------------
+def _reflected_sources(tmp_path, statements):
+    """Build a SQLite database from ``statements`` and return its tables as
+    {table_name: Source}, the same way console.py reads a database URL."""
+    import sqlalchemy as sa
+
+    from ddlgenerator.sources import sqlalchemy_table_sources
+
+    db_path = tmp_path / "src.db"
+    engine = sa.create_engine(f"sqlite:///{db_path}")
+    with engine.begin() as conn:
+        for stmt in statements:
+            conn.execute(sa.text(stmt))
+    engine.dispose()
+    return {s.table_name: s
+            for s in sqlalchemy_table_sources(f"sqlite:///{db_path}")}
+
+
+class TestReflectedSqlaSource:
+    """Tables built from a live-database Source honor the reflected schema
+    (issue #28): the primary key and column types ride on
+    ``Source.generator.sqla_columns`` instead of being re-inferred from row
+    values."""
+
+    def test_reflected_pk_survives(self, tmp_path):
+        """An integer primary key must stay a primary key, so that the
+        generated model creates a sequence on the target (SERIAL on
+        PostgreSQL) for the emitted ALTER SEQUENCE to restart."""
+        sources = _reflected_sources(tmp_path, [
+            "CREATE TABLE knights (id INTEGER PRIMARY KEY, name TEXT)",
+            "INSERT INTO knights VALUES (1, 'Lancelot'), (2, 'Galahad')",
+        ])
+        t = Table(sources['knights'], table_name='knights')
+
+        assert t.pk_name == 'id'
+        ddl = t.sql('postgresql', inserts=False)
+        assert 'id SERIAL' in ddl
+        assert 'PRIMARY KEY (id)' in ddl
+        model = t.sqlalchemy()
+        assert 'primary_key=True' in model
+
+    def test_reflected_types_survive(self, tmp_path):
+        """Declared types must not degrade to whatever the observed values
+        look like (bigint 1 is not a BOOLEAN)."""
+        sources = _reflected_sources(tmp_path, [
+            "CREATE TABLE measures (big BIGINT, seen TIMESTAMP)",
+            "INSERT INTO measures VALUES (1, '2026-01-02 03:04:05')",
+        ])
+        t = Table(sources['measures'], table_name='measures')
+
+        ddl = t.sql('postgresql', inserts=False)
+        assert 'big BIGINT' in ddl
+        assert 'seen TIMESTAMP' in ddl
+
+    def test_reflected_table_without_pk(self, tmp_path):
+        """A reflected table with no primary key must not crash the
+        sqla_columns branch (its pk lookup has no match) and gets none."""
+        sources = _reflected_sources(tmp_path, [
+            "CREATE TABLE logs (message TEXT)",
+            "INSERT INTO logs VALUES ('hello')",
+        ])
+        t = Table(sources['logs'], table_name='logs')
+
+        assert t.pk_name is None
+        assert 'CREATE TABLE logs' in t.sql('postgresql', inserts=False)
+
+    def test_rowless_reflected_table_still_gets_ddl(self, tmp_path):
+        """A reflected table with columns but no rows is a valid source --
+        the schema comes from the catalog, not from the rows."""
+        sources = _reflected_sources(tmp_path, [
+            "CREATE TABLE empty_but_columned (id INTEGER PRIMARY KEY, name TEXT)",
+        ])
+        t = Table(sources['empty_but_columned'], table_name='empty_but_columned')
+
+        ddl = t.sql('postgresql', inserts=False)
+        assert 'CREATE TABLE empty_but_columned' in ddl
+        assert 'name TEXT' in ddl
+
+
+# ---------------------------------------------------------------------------
 # File-based tests
 # ---------------------------------------------------------------------------
 class TestFiles:

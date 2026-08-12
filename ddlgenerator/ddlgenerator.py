@@ -398,7 +398,11 @@ class Table:
 
         if hasattr(self.data, 'generator') and hasattr(self.data.generator, 'sqla_columns'):
             children: dict[str, Any] = {}
-            self.pk_name = next(col.name for col in self.data.generator.sqla_columns if col.primary_key)
+            # a reflected table is not guaranteed a primary key
+            self.pk_name = next(
+                (col.name for col in self.data.generator.sqla_columns
+                 if col.primary_key),
+                None)
         else:
             self.data = reshape.walk_and_clean(self.data)
             (self.data, self.pk_name, children,
@@ -787,10 +791,15 @@ class Table:
         self.columns = OrderedDict()
         if hasattr(self.data, 'generator') and hasattr(self.data.generator, 'sqla_columns'):
             for col in self.data.generator.sqla_columns:
+                try:
+                    pytype = col.type.python_type
+                except NotImplementedError:
+                    # NullType and dialect oddities carry no Python type
+                    pytype = str
                 self.columns[col.name] = {'is_nullable': col.nullable,
                                           'is_unique': col.unique,
                                           'satype': col.type,
-                                          'pytype': col.pytype}
+                                          'pytype': pytype}
             return
         self.comments = {}
         rowcount = 0

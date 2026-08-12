@@ -1003,7 +1003,26 @@ class TestSqlalchemyTableSources:
 
         assert len(sources) == 1
         rows = list(sources[0])
-        assert [tuple(row) for row in rows] == [(1, 'a'), (2, 'b')]
+        assert [tuple(row.values()) for row in rows] == [(1, 'a'), (2, 'b')]
+
+    def test_reflected_columns_ride_on_the_generator(self, tmp_path):
+        """The generator carries the reflected schema as ``sqla_columns``
+        (the attribute ddlgenerator.Table checks for), so the primary key
+        and declared types survive instead of being re-inferred from row
+        values (issue #28)."""
+        db_path = tmp_path / "test.db"
+        engine = sqlalchemy.create_engine(f"sqlite:///{db_path}")
+        with engine.connect() as connection:
+            connection.execute(sqlalchemy.text(
+                "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)"))
+            connection.commit()
+
+        (source,) = sqlalchemy_table_sources(f"sqlite:///{db_path}")
+
+        cols = {col.name: col for col in source.generator.sqla_columns}
+        assert set(cols) == {'id', 'name'}
+        assert cols['id'].primary_key
+        assert not cols['name'].primary_key
 
     def test_limit_applies_to_sqlalchemy_url_source(self, tmp_path):
         """Regression guard: sqlalchemy_table_sources previously never
@@ -1037,7 +1056,7 @@ class TestSqlalchemyTableSources:
         sources = list(sqlalchemy_table_sources(f"sqlite:///{db_path}", every_nth=3))
 
         rows = list(sources[0])
-        assert [tuple(row) for row in rows] == [(3,), (6,), (9,)]
+        assert [tuple(row.values()) for row in rows] == [(3,), (6,), (9,)]
 
     def test_sample_k_applies_to_sqlalchemy_url_source(self, tmp_path):
         db_path = tmp_path / "test.db"
