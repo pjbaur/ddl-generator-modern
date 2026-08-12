@@ -217,12 +217,6 @@ class TestSequenceUpdates:
 
         assert updates == ["ALTER SEQUENCE public.widgets_id_seq RESTART WITH 4;"]
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="emit_db_sequence_updates emits last_value + 1 without "
-               "consulting is_called, so a never-used sequence (last_value=1, "
-               "is_called=false, next nextval()=1) is skipped past 1 -- "
-               "follow-up issue, not fixed in the PR that added this test")
     def test_fresh_sequence_is_not_skipped_past_one(self, pg_db):
         """A never-used sequence reports last_value=1 with is_called=false,
         so its next nextval() is 1 -- but the code emits last_value + 1
