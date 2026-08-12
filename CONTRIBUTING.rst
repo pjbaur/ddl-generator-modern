@@ -154,6 +154,36 @@ Run MongoDB tests (requires running MongoDB)::
 
     $ pytest -m mongo
 
+PostgreSQL Integration Tests
+----------------------------
+
+``tests/test_integration_postgres.py`` runs against a real PostgreSQL
+server, provisioned automatically with testcontainers. They need Docker
+running plus two extras::
+
+    $ pip install -e ".[dev,postgres,integration]"
+    $ pytest -m postgres
+
+or through tox::
+
+    $ tox -e integration-postgres
+
+When Docker, testcontainers, or psycopg2 is missing, these tests skip
+with a clear reason and plain ``pytest`` stays green. To avoid the one-time
+container startup during quick local loops::
+
+    $ pytest -m "not postgres"
+
+``DDLGEN_PG_INTEGRATION_REQUIRED=1`` (set in CI only) turns every
+would-be skip into a failure so the CI job cannot pass by silently
+skipping.
+
+colima/podman users may need to export ``DOCKER_HOST`` (and sometimes
+``TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE`` or
+``TESTCONTAINERS_RYUK_DISABLED=true``) so testcontainers can reach the
+Docker socket. Note that a ``~/.testcontainers.properties`` file with a
+``tc.host`` entry overrides ``DOCKER_HOST``.
+
 Project Structure
 -----------------
 
