@@ -162,7 +162,7 @@ class TestSqlAlchemyTableSources:
         sources = list(sqlalchemy_table_sources(url))
 
         rows = list(sources[0])
-        assert [tuple(row) for row in rows] == [
+        assert [tuple(row.values()) for row in rows] == [
             (1, "Lancelot"), (2, "Galahad"), (3, "Robin")]
 
     def test_limit_applies_per_table(self, pg_db):
@@ -268,14 +268,11 @@ class TestCliAgainstLivePostgres:
         assert ("ALTER SEQUENCE public.knights_id_seq RESTART WITH 3;"
                 in output)
 
-    def test_reflected_column_types_are_reinferred(self, pg_db):
-        """Characterization, not endorsement: reflected column types are
-        discarded (nothing ever sets Source.sqla_columns, the attribute
-        ddlgenerator.py checks for), so rows from a live database are
-        re-inferred from their values just like CSV text.  The declared
-        types degrade to whatever the observed values look like -- bigint
-        holding 1 becomes BOOLEAN, and even a timestamp comes back as a
-        VARCHAR sized to its string form."""
+    def test_reflected_column_types_are_preserved(self, pg_db):
+        """Rows from a live database keep their declared types: the
+        reflected schema rides on Source.sqla_columns, so a bigint stays a
+        bigint no matter what its values look like (issue #28; before the
+        fix, bigint 1 came back BOOLEAN and a timestamp VARCHAR(19))."""
         url, engine = pg_db
         _seed(engine,
               "CREATE TABLE measures (big bigint, price numeric(12, 4),"
@@ -287,10 +284,10 @@ class TestCliAgainstLivePostgres:
         generate(f"postgresql {url}", file=out)
 
         output = out.getvalue()
-        assert "big BOOLEAN" in output          # bigint 1 re-read as boolean
-        assert "price DECIMAL(5, 4)" in output  # numeric(12,4) shrunk to value
-        assert "label VARCHAR(2)" in output     # text narrowed to observed width
-        assert "seen VARCHAR(19)" in output     # timestamp stringified
+        assert "big BIGINT" in output
+        assert "price NUMERIC(12, 4)" in output
+        assert "label TEXT" in output
+        assert "seen TIMESTAMP" in output
 
     def test_count_only_reports_live_counts(self, pg_db):
         url, engine = pg_db
@@ -348,14 +345,6 @@ class TestCliAgainstLivePostgres:
             namespace["engine"].dispose()
         assert count == 2
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason="the generated model loses the serial column (reflected "
-               "types are discarded and no primary key is inferred), so "
-               "create_all makes no sequence on the target -- but "
-               "insert_test_rows still runs ALTER SEQUENCE against it, "
-               "which raises UndefinedTable; follow-up issue, not fixed "
-               "in the PR that added this test")
     def test_generated_sqlalchemy_module_round_trips_serial_source(
             self, pg_db, pg_db_factory, tmp_path):
         """A module generated from a source with a serial column should

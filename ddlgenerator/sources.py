@@ -512,9 +512,17 @@ class Source:
             )
         self.db_engine = engine
         connection = engine.connect()
-        slct = sqlalchemy.sql.select(meta.tables[table])
-        result = connection.execute(slct)
-        self.generator = NamedIter(iter(result), name=table)
+        tbl = meta.tables[table]
+        result = connection.execute(sqlalchemy.sql.select(tbl))
+        # Mapping rows, like every other source path yields -- SQLAlchemy
+        # 2.x Row objects have no .keys()/.items() of their own
+        rows = (OrderedDict(row._mapping) for row in result)
+        self.generator = NamedIter(rows, name=table)
+        # ddlgenerator.Table looks for this attribute: it carries the
+        # reflected schema, so the primary key and the declared column
+        # types survive instead of being re-inferred from row values
+        # (issue #28)
+        self.generator.sqla_columns = list(tbl.columns)
         self.table_name = table
 
     def _deserialize(self, open_file: IO[str], deserializers: Iterable) -> None:
