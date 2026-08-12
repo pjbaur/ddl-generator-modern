@@ -669,6 +669,26 @@ class TestSqlAlchemyInserterCall:
         generate(f"-i postgresql {data_file}", file=out)
         assert "insert_test_rows" not in out.getvalue()
 
+    def test_table_named_test_rows_does_not_shadow_the_driver(self, tmp_path):
+        """A table named ``test_rows`` gets an inserter whose natural name,
+        ``insert_test_rows``, is taken by the driver function.  Emitting both
+        under one name made the driver (defined last) shadow the per-table
+        inserter and call itself, recursing into an AttributeError."""
+        data_file = tmp_path / "test_rows.json"
+        data_file.write_text('[{"name": "Og"}, {"name": "Bonk"}]')
+        out = io.StringIO()
+        generate(f"-i sqlalchemy {data_file}", file=out)
+        module = tmp_path / "generated.py"
+        module.write_text(out.getvalue())
+
+        namespace = runpy.run_path(str(module))
+        namespace["insert_test_rows"](namespace["metadata"], namespace["conn"])
+
+        conn = namespace["conn"]
+        test_rows = namespace["test_rows"]
+        assert conn.execute(
+            sa.select(sa.func.count()).select_from(test_rows)).scalar() == 2
+
     def test_generated_module_populates_its_tables(self, tmp_path):
         """End to end: the emitted module must run and load every row."""
         out = io.StringIO()
