@@ -704,7 +704,7 @@ class Table:
         if dialect and dialect.startswith("sqla"):
             if self.data:
                 needs_conversion = self._needs_conversion()
-                yield f"\ndef insert_{_python_identifier(self.table_name)}(tbl, conn):"
+                yield f"\ndef {_inserter_name(self.table_name)}(tbl, conn):"
                 yield "    inserter = tbl.insert()"
                 for row in self.data:
                     # SQLAlchemy binds Python objects, so the raw source values
@@ -890,6 +890,21 @@ def _python_identifier(table_name: str) -> str:
     return result
 
 
+def _inserter_name(table_name: str) -> str:
+    """Name of the generated per-table ``insert_*`` function.
+
+    ``insert_test_rows`` is taken by the driver function that calls the
+    per-table inserters (see ``sqla_inserter_call``), and the driver is
+    defined last -- a table actually named ``test_rows`` would have its
+    inserter shadowed by the driver, which would then call itself and
+    recurse.  A trailing underscore keeps the two apart.
+    """
+    result = f'insert_{_python_identifier(table_name)}'
+    if result == 'insert_test_rows':
+        result += '_'
+    return result
+
+
 def _python_variable_name(table_name: str) -> str:
     """Make ``table_name`` safe to bind as a variable in the generated model.
 
@@ -927,7 +942,7 @@ def insert_test_rows(meta, conn):
 
 {}
     conn.commit()
-'''.format('\n'.join(f"    insert_{_python_identifier(t)}(meta.tables['{t}'], conn)"
+'''.format('\n'.join(f"    {_inserter_name(t)}(meta.tables['{t}'], conn)"
                      for t in table_names))
 
 
