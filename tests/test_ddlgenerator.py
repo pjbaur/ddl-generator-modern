@@ -159,12 +159,12 @@ class TestSequenceUpdates:
 
         # Mock a PostgreSQL engine
         mock_result = MagicMock()
-        mock_result.first.return_value = (100,)
+        mock_result.first.return_value = (100, True)
 
         mock_conn = MagicMock()
         mock_conn.execute.side_effect = [
-            [('SELECT last_value FROM public.my_seq;', 'public.my_seq',)],  # First query: get sequences
-            mock_result  # Second query: get last_value
+            [('SELECT last_value, is_called FROM public.my_seq;', 'public.my_seq',)],  # First query: get sequences
+            mock_result  # Second query: get last_value, is_called
         ]
 
         mock_engine = Mock()
@@ -211,10 +211,11 @@ class TestSequenceUpdates:
             setup.execute(sa.text("CREATE TABLE pg_namespace (oid INTEGER, nspname TEXT)"))
             setup.execute(sa.text(
                 "CREATE TABLE pg_class (relnamespace INTEGER, relname TEXT, relkind TEXT)"))
-            setup.execute(sa.text("CREATE TABLE widget_id_seq (last_value INTEGER)"))
+            setup.execute(sa.text(
+                "CREATE TABLE widget_id_seq (last_value INTEGER, is_called BOOLEAN)"))
             setup.execute(sa.text("INSERT INTO pg_namespace VALUES (1, 'main')"))
             setup.execute(sa.text("INSERT INTO pg_class VALUES (1, 'widget_id_seq', 'S')"))
-            setup.execute(sa.text("INSERT INTO widget_id_seq VALUES (41)"))
+            setup.execute(sa.text("INSERT INTO widget_id_seq VALUES (41, 1)"))
 
         class PostgresNamedEngine:
             name = 'postgresql'
@@ -224,6 +225,32 @@ class TestSequenceUpdates:
 
         updates = list(emit_db_sequence_updates(PostgresNamedEngine()))
         assert updates == ['ALTER SEQUENCE main.widget_id_seq RESTART WITH 42;']
+
+    def test_emit_db_sequence_updates_fresh_sequence_keeps_last_value(self, tmp_path):
+        """A never-used sequence reports last_value=1 with is_called=false,
+        meaning its next nextval() is 1 -- so the RESTART value must be
+        last_value itself, not last_value + 1 (issue #27)."""
+        import sqlalchemy as sa
+
+        engine = sa.create_engine(f"sqlite:///{tmp_path / 'fake_pg.db'}")
+        with engine.begin() as setup:
+            setup.execute(sa.text("CREATE TABLE pg_namespace (oid INTEGER, nspname TEXT)"))
+            setup.execute(sa.text(
+                "CREATE TABLE pg_class (relnamespace INTEGER, relname TEXT, relkind TEXT)"))
+            setup.execute(sa.text(
+                "CREATE TABLE widget_id_seq (last_value INTEGER, is_called BOOLEAN)"))
+            setup.execute(sa.text("INSERT INTO pg_namespace VALUES (1, 'main')"))
+            setup.execute(sa.text("INSERT INTO pg_class VALUES (1, 'widget_id_seq', 'S')"))
+            setup.execute(sa.text("INSERT INTO widget_id_seq VALUES (1, 0)"))
+
+        class PostgresNamedEngine:
+            name = 'postgresql'
+
+            def connect(self):
+                return engine.connect()
+
+        updates = list(emit_db_sequence_updates(PostgresNamedEngine()))
+        assert updates == ['ALTER SEQUENCE main.widget_id_seq RESTART WITH 1;']
 
 
 # ---------------------------------------------------------------------------

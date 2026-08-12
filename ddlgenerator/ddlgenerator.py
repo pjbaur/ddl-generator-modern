@@ -957,15 +957,18 @@ def emit_db_sequence_updates(engine: Any) -> Iterator[str]:
         conn = engine.connect()
         # SQLAlchemy 2.x refuses a plain string here -- statements must be
         # wrapped in ``text()`` or they raise ObjectNotExecutableError
-        seq_query = sa.text("""SELECT 'SELECT last_value FROM ' || n.nspname ||
+        seq_query = sa.text("""SELECT 'SELECT last_value, is_called FROM ' || n.nspname ||
                          '.' || c.relname || ';' AS qry,
                         n.nspname || '.' || c.relname AS qual_name
                  FROM   pg_namespace n
                  JOIN   pg_class c ON (n.oid = c.relnamespace)
                  WHERE  c.relkind = 'S'""")
         for (qry, qual_name) in list(conn.execute(seq_query)):
-            (lastval, ) = conn.execute(sa.text(qry)).first()
-            nextval = int(lastval) + 1
+            (lastval, is_called) = conn.execute(sa.text(qry)).first()
+            # A never-used sequence reports last_value with is_called=false,
+            # meaning that value has not been handed out yet -- restarting at
+            # last_value + 1 would skip it (issue #27).
+            nextval = int(lastval) + 1 if is_called else int(lastval)
             yield f"ALTER SEQUENCE {qual_name} RESTART WITH {nextval};"
 
 
