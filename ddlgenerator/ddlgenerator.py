@@ -564,7 +564,13 @@ class Table:
         creating them.  ``drop_all`` defaults to ``checkfirst=True``, so it
         is the analogue of the ``DROP TABLE IF EXISTS`` the SQL dialects
         emit for the same flag.
+
+        With ``is_top=False``, returns only the table definitions -- no
+        import line, no ``create_all`` -- so several tables' worth can be
+        wrapped together by ``sqlalchemy_model_script``.
         """
+        if is_top:
+            return sqlalchemy_model_script([self], drops=drops)
         table_def = self.table_backref_remover.sub('', self.table.__repr__())
 
         # inject UNIQUE constraints into table definition
@@ -590,20 +596,8 @@ class Table:
         table_def = table_def.replace("schema=", "\n  schema=")
         parts = [table_def, ]
         parts.extend(c.sqlalchemy(is_top=False) for c in self.children.values())
-        result = "\n{} = {}".format(_python_variable_name(self.table_name),
-                                    "\n".join(parts))
-        if is_top:
-            # scan the child definitions too, not just this table's -- a type
-            # used only by a child was otherwise left out of the import line
-            found_imports = set(self.capitalized_words.findall(result))
-            found_imports &= set(dir(sa))
-            setup = 'metadata.create_all(engine)'
-            if drops:
-                setup = f'metadata.drop_all(engine)\n{setup}'
-            result = self.sqlalchemy_setup_template % (
-                ", ".join(sorted(found_imports)), result, setup)
-            result = textwrap.dedent(result)
-        return result
+        return "\n{} = {}".format(_python_variable_name(self.table_name),
+                                  "\n".join(parts))
 
     def django_models(self, metadata_source: str | None = None) -> None:
         sql = self.sql(dialect='postgresql', inserts=False, creates=True,
@@ -847,6 +841,27 @@ from sqlalchemy import create_engine, MetaData, ForeignKey, text
 engine = create_engine(r'sqlite:///:memory:')
 metadata = MetaData()
 conn = engine.connect()"""
+
+
+def sqlalchemy_model_script(tables: Iterable[Table], drops: bool = False) -> str:
+    """Model code for all of ``tables`` in one wrapper.
+
+    One ``from sqlalchemy import ...`` line and one closing
+    ``metadata.create_all(engine)`` (preceded by ``drop_all`` with
+    ``drops``) cover every table passed, so a multi-datafile run reads as
+    one script instead of repeating the boilerplate per datafile.
+    """
+    # scan the child definitions too, not just each top table's -- a type
+    # used only by a child was otherwise left out of the import line
+    body = "\n".join(t.sqlalchemy(is_top=False) for t in tables)
+    found_imports = set(Table.capitalized_words.findall(body))
+    found_imports &= set(dir(sa))
+    setup = 'metadata.create_all(engine)'
+    if drops:
+        setup = f'metadata.drop_all(engine)\n{setup}'
+    return textwrap.dedent(Table.sqlalchemy_setup_template % (
+        ", ".join(sorted(found_imports)), body, setup))
+
 
 # Lowercase names ``sqla_head`` binds.  A table variable of the same name
 # shadows them and breaks the lines that follow -- rebinding ``metadata``

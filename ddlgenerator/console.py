@@ -11,6 +11,7 @@ from ddlgenerator.ddlgenerator import (
     emit_db_sequence_updates,
     sqla_head,
     sqla_inserter_call,
+    sqlalchemy_model_script,
 )
 from ddlgenerator.sources import Source, count_sqlalchemy_tables, sqlalchemy_table_sources
 
@@ -70,12 +71,18 @@ is_sqlalchemy_url = re.compile(r"^(?:{})(?:\+\w+)?://".format("|".join(dialect_n
 
 def generate_one(tbl: Any, args: argparse.Namespace,
                  table_name: str | None = None, file: IO[str] | None = None,
-                 used_table_names: set[str] | None = None) -> Table:
+                 used_table_names: set[str] | None = None,
+                 sqla_tables: list[Table] | None = None) -> Table:
     """
     Prints code (SQL, SQLAlchemy, etc.) to define a table.
 
     ``used_table_names`` is the pool of names already emitted this run; pass
     one so that two sources landing on the same name do not collide.
+
+    ``sqla_tables``, if given, collects the sqlalchemy dialect's tables
+    instead of printing model code here: the caller wraps every collected
+    table in one script, so the import line and ``create_all`` appear once
+    per run rather than once per datafile.
     """
     table = Table(tbl, table_name=table_name, varying_length_text=args.text, uniques=args.uniques,
                   pk_name=args.key, force_pk=args.force_key, reorder=args.reorder, data_size_cushion=args.cushion,
@@ -84,10 +91,13 @@ def generate_one(tbl: Any, args: argparse.Namespace,
                   sample_k=args.sample_k, seed=args.seed, sample_pct=args.sample_pct,
                   _used_table_names=used_table_names)
     if args.dialect.startswith('sqla'):
-        if not args.no_creates:
-            print(table.sqlalchemy(drops=args.drops), file=file)
-        if args.inserts:
-            print("\n".join(table.inserts(dialect=args.dialect)), file=file)
+        if sqla_tables is not None:
+            sqla_tables.append(table)
+        else:
+            if not args.no_creates:
+                print(table.sqlalchemy(drops=args.drops), file=file)
+            if args.inserts:
+                print("\n".join(table.inserts(dialect=args.dialect)), file=file)
     elif args.dialect.startswith('dj'):
         table.django_models()
     else:
@@ -191,6 +201,10 @@ def generate(args: str | list[str] | None = None,
     # Every table emitted this run shares one namespace -- one script, or one
     # target database -- so they are named out of a single pool.
     used_table_names: set[str] = set()
+    # The sqlalchemy dialect's tables are collected and emitted together
+    # after the loop, so one import line and one create_all serve the whole
+    # run instead of repeating per datafile.
+    sqla_tables: list[Table] | None = [] if parsed.dialect == 'sqlalchemy' else None
     for datafile in parsed.datafile:
         if is_sqlalchemy_url.search(datafile):
             t = None
@@ -200,7 +214,8 @@ def generate(args: str | list[str] | None = None,
                                                 seed=parsed.seed,
                                                 sample_pct=parsed.sample_pct):
                 t = generate_one(tbl, parsed, table_name=tbl.generator.name, file=file,
-                                 used_table_names=used_table_names)
+                                 used_table_names=used_table_names,
+                                 sqla_tables=sqla_tables)
                 if t.data:
                     # the name the model defines, which is not always the name
                     # the source gave: it is cleaned, and may be uniquified
@@ -213,12 +228,19 @@ def generate(args: str | list[str] | None = None,
                         print(seq_update, file=file)
         else:
             t = generate_one(datafile, parsed, file=file,
-                             used_table_names=used_table_names)
+                             used_table_names=used_table_names,
+                             sqla_tables=sqla_tables)
             if parsed.inserts and parsed.dialect == 'sqlalchemy':
                 # nested data splits into child tables, which get their own
                 # ``insert_*`` functions and so must be called as well
                 table_names_for_insert.extend(t.insertable_table_names())
-    if parsed.inserts and parsed.dialect == 'sqlalchemy':
-        print(sqla_inserter_call(table_names_for_insert), file=file)
-        for seq_update in sqla_sequence_updates:
-            print(f'    conn.execute(text("{seq_update}"))', file=file)
+    if parsed.dialect == 'sqlalchemy':
+        assert sqla_tables is not None
+        if not parsed.no_creates and sqla_tables:
+            print(sqlalchemy_model_script(sqla_tables, drops=parsed.drops), file=file)
+        if parsed.inserts:
+            for t in sqla_tables:
+                print("\n".join(t.inserts(dialect=parsed.dialect)), file=file)
+            print(sqla_inserter_call(table_names_for_insert), file=file)
+            for seq_update in sqla_sequence_updates:
+                print(f'    conn.execute(text("{seq_update}"))', file=file)
