@@ -210,6 +210,34 @@ class TestUnnestChildren:
         )
         assert len(children) == 0
 
+    def test_mixed_scalar_and_list_field(self):
+        # Same field is a scalar in one row, a list in another: the scalar
+        # becomes a single child row, like a one-element list would.
+        data = [
+            {"id": 1, "tag": "red"},
+            {"id": 2, "tag": ["x", "y"]},
+        ]
+        (parent, pk_name, children, child_fk_names) = unnest_children(
+            data, parent_name="test", pk_name="id"
+        )
+        assert "tag" in children
+        assert {"tag": "red", "test_id": 1} in children["tag"]
+        assert {"tag": "x", "test_id": 2} in children["tag"]
+        assert {"tag": "y", "test_id": 2} in children["tag"]
+        assert len(children["tag"]) == 3
+        assert "tag" not in parent[0]
+
+    def test_none_and_list_field(self):
+        # None where other rows hold a list means "no children" for that row.
+        data = [
+            {"id": 1, "tag": None},
+            {"id": 2, "tag": ["x"]},
+        ]
+        (parent, pk_name, children, child_fk_names) = unnest_children(
+            data, parent_name="test", pk_name="id"
+        )
+        assert children["tag"] == [{"tag": "x", "test_id": 2}]
+
 
 # ---------------------------------------------------------------------------
 # all_values_for
