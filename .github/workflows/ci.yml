@@ -7,6 +7,14 @@ on:
     branches: [main, master]
 
 jobs:
+  lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Check uv.lock is up to date
+        run: uv lock --check
+
   lint:
     runs-on: ubuntu-latest
     steps:
