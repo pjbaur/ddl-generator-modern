@@ -42,6 +42,19 @@ mutable state. Determinism chosen over cross-process uniqueness.
   replacing the `startswith` sniff. A file named
   `generated_table.yaml` is no longer treated as auto-named.
 
+### Second counter: `Source.table_count`
+
+`sources.py` has the same disease: `Source.table_count` is a
+class-level counter; each `Source` starts as placeholder
+`Table{N}` (`sources.py:426,432`). When a source derives no real name
+(unnamed generator, file-like without `.name`), that process-history
+number survives and flows into `Table` through the override above.
+
+- Remove `table_count`; placeholder becomes the constant `Table`.
+- `tests/test_sources.py:341` asserts `Table0` and changes to `Table`
+  as part of this intentional behavior change.
+- The conftest `reset_source_table_count` fixture is deleted too.
+
 ### Uniqueness contract
 
 - The private `_used_table_names` pool (introduced by PR #19) stays the
@@ -54,7 +67,8 @@ mutable state. Determinism chosen over cross-process uniqueness.
 
 ### Test changes
 
-- Delete the `reset_table_index` conftest fixture.
+- Delete the `reset_table_index` and `reset_source_table_count`
+  conftest fixtures.
 - Add tests:
   - Determinism: a `Table` built after prior instances still names
     itself `generated_table`.
