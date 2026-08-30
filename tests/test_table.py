@@ -13,6 +13,7 @@ import io
 import json
 import os
 import runpy
+import sqlite3
 from collections import Counter, OrderedDict
 from decimal import Decimal
 
@@ -63,6 +64,15 @@ class TestMultiDialectDDL:
         assert len(inserts) == 1
         assert "INSERT INTO" in inserts[0]
         assert "Alice" in inserts[0]
+
+    def test_inserts_quote_reserved_word_table_name(self):
+        """An unnamed source takes the placeholder name "table", a reserved
+        word: the INSERT must quote it the way the CREATE does, or the
+        statement is invalid SQL.
+        """
+        tbl = Table('[{"name": "Alfred"}]')
+        (insert,) = tbl.inserts("postgresql")
+        assert insert == 'INSERT INTO "table" (name) VALUES (\'Alfred\');'
 
     def test_drops_included(self):
         tbl = Table(self.data, table_name="test_multi")
@@ -476,6 +486,37 @@ class TestSQLAlchemyInserts:
         second = Table([{"name": "b"}], table_name="dup")
         assert (first.table_name, second.table_name) == ("dup", "dup")
 
+    def test_unnamed_table_name_is_constant_across_instances(self):
+        """Table names cannot depend on how many Tables the process made."""
+        first = Table([{"name": "a"}])
+        second = Table([{"name": "b"}])
+        assert first.table_name == "generated_table"
+        assert second.table_name == "generated_table"
+
+    def test_unnamed_tables_dedupe_through_the_pool(self):
+        """The pool, not a global counter, keeps pooled names distinct."""
+        used = set()
+        first = Table([{"name": "a"}], _used_table_names=used)
+        second = Table([{"name": "b"}], _used_table_names=used)
+        assert (first.table_name, second.table_name) == \
+            ("generated_table", "generated_table_1")
+
+    def test_name_generated_flag_tracks_name_origin(self):
+        assert Table([{"name": "a"}])._name_generated is True
+        assert Table([{"name": "a"}],
+                     table_name="explicit")._name_generated is False
+
+    def test_file_named_generated_table_is_not_treated_as_auto_named(
+            self, tmp_path):
+        """A derived basename wins; the flag, not the string shape,
+        decides what counts as auto-named."""
+        import yaml as yaml_module
+        path = tmp_path / "generated_table.yaml"
+        path.write_text(yaml_module.safe_dump([{"name": "a"}]))
+        tbl = Table(str(path))
+        assert tbl.table_name == "generated_table"
+        assert tbl._name_generated is False
+
     def test_insertable_table_names_match_the_functions_emitted(self):
         """The names feed ``sqla_inserter_call``; a name with no matching
         ``insert_*`` function makes the generated module raise NameError."""
@@ -557,6 +598,20 @@ class TestSqlCombined:
         output = tbl.sql("postgresql", inserts=False)
         assert "CREATE TABLE" in output
         assert "INSERT INTO" not in output
+
+    def test_full_sql_of_unnamed_source_executes_on_sqlite(self):
+        """Safety net: every statement sql() emits for an unnamed source --
+        whose placeholder name "table" is a reserved word -- must be
+        executable, from DROP through CREATE to INSERT.
+        """
+        tbl = Table('[{"Name": "Alfred", "kg": 22}]')
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.executescript(tbl.sql("sqlite", inserts=True))
+            rows = conn.execute('SELECT name, kg FROM "table"').fetchall()
+        finally:
+            conn.close()
+        assert rows == [("Alfred", 22)]
 
 
 # ---------------------------------------------------------------------------
@@ -1063,6 +1118,17 @@ class TestDropperDialects:
         result = tbl._dropper("drizzle")
         assert "DROP TABLE" in result
         assert "IF EXISTS" not in result
+
+    def test_dropper_quotes_reserved_word_name(self):
+        """A reserved-word table name must be quoted in the DROP statement.
+
+        An unnamed source (e.g. inline JSON) takes the placeholder name
+        "table", which is a reserved word: unquoted, ``DROP TABLE IF EXISTS
+        table`` is invalid SQL in postgresql and sqlite.
+        """
+        tbl = Table('[{"id": 1}]')  # unnamed source: placeholder name "table"
+        assert tbl.table_name == "table"
+        assert tbl._dropper("postgresql") == 'DROP TABLE IF EXISTS "table"'
 
 
 # ---------------------------------------------------------------------------
