@@ -742,12 +742,17 @@ class Table:
                 yield from child.inserts(dialect)
         else:
             dialect = self._dialect(dialect)
+            # Quote the table name the way the dialect's compiler does (the
+            # CREATE already does): the unnamed-source placeholder name
+            # "table" is a reserved word, unquoted only in this template.
+            preparer = mock_engines[dialect].dialect.identifier_preparer
+            quoted_name = preparer.quote(self.table_name)
             needs_conversion = self._needs_conversion()
             for row in self.data:
                 cols = ", ".join(c for c in row.keys())
                 vals = ", ".join(str(self._prep_datum(val, dialect, key, needs_conversion))
                                  for (key, val) in row.items())
-                yield self._insert_template.format(table_name=self.table_name,
+                yield self._insert_template.format(table_name=quoted_name,
                                                    cols=cols, vals=vals)
             for child in self.children.values():
                 for row in child.inserts(dialect):

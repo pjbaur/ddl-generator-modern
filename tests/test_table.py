@@ -13,6 +13,7 @@ import io
 import json
 import os
 import runpy
+import sqlite3
 from collections import Counter, OrderedDict
 from decimal import Decimal
 
@@ -63,6 +64,15 @@ class TestMultiDialectDDL:
         assert len(inserts) == 1
         assert "INSERT INTO" in inserts[0]
         assert "Alice" in inserts[0]
+
+    def test_inserts_quote_reserved_word_table_name(self):
+        """An unnamed source takes the placeholder name "table", a reserved
+        word: the INSERT must quote it the way the CREATE does, or the
+        statement is invalid SQL.
+        """
+        tbl = Table('[{"name": "Alfred"}]')
+        (insert,) = tbl.inserts("postgresql")
+        assert insert == 'INSERT INTO "table" (name) VALUES (\'Alfred\');'
 
     def test_drops_included(self):
         tbl = Table(self.data, table_name="test_multi")
@@ -588,6 +598,20 @@ class TestSqlCombined:
         output = tbl.sql("postgresql", inserts=False)
         assert "CREATE TABLE" in output
         assert "INSERT INTO" not in output
+
+    def test_full_sql_of_unnamed_source_executes_on_sqlite(self):
+        """Safety net: every statement sql() emits for an unnamed source --
+        whose placeholder name "table" is a reserved word -- must be
+        executable, from DROP through CREATE to INSERT.
+        """
+        tbl = Table('[{"Name": "Alfred", "kg": 22}]')
+        conn = sqlite3.connect(":memory:")
+        try:
+            conn.executescript(tbl.sql("sqlite", inserts=True))
+            rows = conn.execute('SELECT name, kg FROM "table"').fetchall()
+        finally:
+            conn.close()
+        assert rows == [("Alfred", 22)]
 
 
 # ---------------------------------------------------------------------------
