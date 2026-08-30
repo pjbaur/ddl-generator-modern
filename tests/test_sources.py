@@ -338,7 +338,16 @@ class TestSourceGenerator:
         def gen():
             yield {"a": 1}
         src = Source(gen())
-        assert src.table_name == "Table0"
+        assert src.table_name == "Table"
+
+    def test_default_table_name_is_constant_across_sources(self):
+        """The placeholder cannot depend on process history."""
+        def gen():
+            yield {"a": 1}
+        first = Source(gen())
+        second = Source(gen())
+        assert first.table_name == "Table"
+        assert second.table_name == "Table"
 
 
 # ---------------------------------------------------------------------------

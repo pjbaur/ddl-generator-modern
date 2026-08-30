@@ -358,8 +358,6 @@ class Source:
     ``every_nth``, or ``sample_k``.
     """
 
-    table_count = 0
-
     generator: Any
     file: IO[str] | None
     db_engine: Any
@@ -423,13 +421,12 @@ class Source:
         self._pct_seen = 0
         self._fallback_row: Any = None
         self._fallback_served = False
-        self.table_name = f'Table{Source.table_count}'
+        self.table_name = 'Table'
         self.fieldnames = fieldnames
         self.db_engine = None
         self.generator = None
         self.file = None
         self._file_opened_by_us = False  # Track if we opened the file
-        Source.table_count += 1
 
         # SQLAlchemy MetaData
         if sqlalchemy and isinstance(src, sqlalchemy.sql.schema.MetaData):
