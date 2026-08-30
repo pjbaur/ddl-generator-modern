@@ -27,4 +27,3 @@ def table_class():
     except ImportError:
         from ddlgenerator import Table
         return Table
-
