@@ -321,11 +321,19 @@ def unnest_children(data: Any, parent_name: str = '', pk_name: str | None = None
         child_fk_names[child_name] = fk_name
         for row in parent:
             if child_name in row:
+                # rows may hold a scalar or None where sibling rows hold a list
+                if not isinstance(row[child_name], (list, tuple)):
+                    val = row[child_name]
+                    row[child_name] = [] if val is None else \
+                        [val if hasattr(val, 'items') else {child_name: val}]
                 for child in row[child_name]:
                     child[fk_name] = row[pk.name]
                     children[child_name].append(child)
                 row.pop(child_name)
-    # TODO: What if rows have a mix of scalar / list / dict types?
+    # A field that is a list in one row and a scalar/None in another is
+    # treated as a child table throughout: the scalar becomes a single child
+    # row, None means no children. Dict values are unnested into the parent
+    # in the loop above, so they never reach the child extraction here.
     return (parent, parent.pk.name if parent.pk else None, children, child_fk_names)
 
 

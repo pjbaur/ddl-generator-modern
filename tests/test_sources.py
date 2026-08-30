@@ -473,11 +473,15 @@ class TestSourceDeserialize:
         assert len(result) == 1
         assert result[0]["name"] == "Alice"
 
-    def test_raises_syntax_error_on_all_failures(self):
+    def test_raises_syntax_error_on_all_failures(self, tmp_path):
         """Invalid content should raise SyntaxError after all deserializers fail."""
-        # This test is tricky because YAML is very permissive
-        # Skip if YAML parses the content
-        pytest.skip("YAML is too permissive - most content parses as string")
+        # A .json extension locks the deserializer list to _json_loader alone,
+        # so YAML/CSV cannot rescue the parse (inline strings would let the
+        # permissive YAML and CSV fallbacks swallow almost any content).
+        path = tmp_path / "broken.json"
+        path.write_text('{"unclosed": ', encoding="utf-8")
+        with pytest.raises(SyntaxError):
+            Source(str(path))
 
     def test_handles_stop_iteration_gracefully(self):
         """Empty content should be handled gracefully."""
