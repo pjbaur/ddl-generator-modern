@@ -130,6 +130,21 @@ class TestFromRawPythonData:
         assert "models.Model" in generated
         assert "name_name_id" in generated
 
+    def test_django_unnamed_source(self):
+        """Regression: unnamed-source placeholder name is the reserved word
+        "table" once lowercased; the unquoted DROP that used to emit crashed
+        the sqlite execution inside django_models().  The model content is
+        not asserted: django's settings and connection cache are
+        process-global, so inspectdb may still report an earlier test's
+        schema.  The crash happened at DROP execution, before inspectdb.
+        """
+        tbl = Table('[{"Name": "Alfred", "kg": 22}]')
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            tbl.django_models()  # must not raise sqlite3.OperationalError
+        generated = output.getvalue()
+        assert "models.Model" in generated
+
 
 # ---------------------------------------------------------------------------
 # Sequence update tests

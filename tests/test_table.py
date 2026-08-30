@@ -1095,6 +1095,17 @@ class TestDropperDialects:
         assert "DROP TABLE" in result
         assert "IF EXISTS" not in result
 
+    def test_dropper_quotes_reserved_word_name(self):
+        """A reserved-word table name must be quoted in the DROP statement.
+
+        An unnamed source (e.g. inline JSON) takes the placeholder name
+        "table", which is a reserved word: unquoted, ``DROP TABLE IF EXISTS
+        table`` is invalid SQL in postgresql and sqlite.
+        """
+        tbl = Table('[{"id": 1}]')  # unnamed source: placeholder name "table"
+        assert tbl.table_name == "table"
+        assert tbl._dropper("postgresql") == 'DROP TABLE IF EXISTS "table"'
+
 
 # ---------------------------------------------------------------------------
 # _saveable_metadata tests

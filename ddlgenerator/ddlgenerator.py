@@ -53,7 +53,7 @@ from typing import TYPE_CHECKING, Any
 import dateutil.parser
 import sqlalchemy as sa
 import yaml
-from sqlalchemy.schema import CreateTable
+from sqlalchemy.schema import CreateTable, DropTable
 
 if TYPE_CHECKING:
     pymongo: Any = None
@@ -525,6 +525,16 @@ class Table:
     _supports_if_exists['mysql'] = _supports_if_exists['sybase'] = True
 
     def _dropper(self, dialect: str) -> str:
+        engine = mock_engines.get(dialect)
+        if engine is not None:
+            # Compile through the dialect so the table name is quoted the
+            # way that dialect quotes it: a reserved word such as "table"
+            # (the unnamed-source placeholder, lowercased) makes an unquoted
+            # DROP invalid SQL in postgresql and sqlite.
+            drop = DropTable(self.table, if_exists=self._supports_if_exists[dialect])
+            return str(drop.compile(engine)).strip()
+        # dialects without a mock engine cannot reach ddl(); keep the plain
+        # template so _dropper stays callable for them
         template = "DROP TABLE %s %s"
         if_exists = "IF EXISTS" if self._supports_if_exists[dialect] else ""
         return template % (if_exists, self.table_name)
