@@ -305,11 +305,10 @@ class Table:
     );
     """
 
-    table_index: int = 0
-
     table_name: str
     metadata: sa.MetaData
     comments: dict[str, str]
+    _name_generated: bool
 
     def _find_table_name(self, data: Any) -> None:
         if not self.table_name:
@@ -319,10 +318,9 @@ class Table:
                 if os.path.isfile(data):
                     (file_path, file_extension) = os.path.splitext(data)
                     self.table_name = os.path.split(file_path)[1].lower()
-        self.table_name = (self.table_name
-                           or f'generated_table{Table.table_index}')
+        self._name_generated = not self.table_name
+        self.table_name = (self.table_name or 'generated_table')
         self.table_name = reshape.clean_key_name(self.table_name)
-        Table.table_index += 1
 
     def __init__(
         self,
@@ -389,7 +387,7 @@ class Table:
             except TypeError:
                 self.data = Source(data)
 
-        if (self.table_name.startswith('generated_table')
+        if (self._name_generated
                 and hasattr(self.data, 'table_name')):
             self.table_name = self.data.table_name
         self.table_name = self.table_name.lower()

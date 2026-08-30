@@ -476,6 +476,37 @@ class TestSQLAlchemyInserts:
         second = Table([{"name": "b"}], table_name="dup")
         assert (first.table_name, second.table_name) == ("dup", "dup")
 
+    def test_unnamed_table_name_is_constant_across_instances(self):
+        """Table names cannot depend on how many Tables the process made."""
+        first = Table([{"name": "a"}])
+        second = Table([{"name": "b"}])
+        assert first.table_name == "generated_table"
+        assert second.table_name == "generated_table"
+
+    def test_unnamed_tables_dedupe_through_the_pool(self):
+        """The pool, not a global counter, keeps pooled names distinct."""
+        used = set()
+        first = Table([{"name": "a"}], _used_table_names=used)
+        second = Table([{"name": "b"}], _used_table_names=used)
+        assert (first.table_name, second.table_name) == \
+            ("generated_table", "generated_table_1")
+
+    def test_name_generated_flag_tracks_name_origin(self):
+        assert Table([{"name": "a"}])._name_generated is True
+        assert Table([{"name": "a"}],
+                     table_name="explicit")._name_generated is False
+
+    def test_file_named_generated_table_is_not_treated_as_auto_named(
+            self, tmp_path):
+        """A derived basename wins; the flag, not the string shape,
+        decides what counts as auto-named."""
+        import yaml as yaml_module
+        path = tmp_path / "generated_table.yaml"
+        path.write_text(yaml_module.safe_dump([{"name": "a"}]))
+        tbl = Table(str(path))
+        assert tbl.table_name == "generated_table"
+        assert tbl._name_generated is False
+
     def test_insertable_table_names_match_the_functions_emitted(self):
         """The names feed ``sqla_inserter_call``; a name with no matching
         ``insert_*`` function makes the generated module raise NameError."""
